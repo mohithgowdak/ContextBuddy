@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Generator, Iterator, List, Optional, Sequence, Tuple, Union
 
 from .budget import BudgetEnforcer
 from .chunking import Chunker
@@ -201,11 +201,22 @@ class ContextEngine:
         user_prompt: str,
         context: Union[str, Sequence[str]],
         llm_call: Callable[[str], Any],
+        stream: bool = False,
     ) -> Any:
         final_prompt, report = self.build_prompt(user_prompt=user_prompt, context=context)
         self.last_report = report
         self._emit_report(report)
+
+        if stream:
+            return self._stream_sync(final_prompt, llm_call)
         return llm_call(final_prompt)
+
+    def _stream_sync(self, prompt: str, llm_call: Callable[[str], Any]) -> Generator[Any, None, None]:
+        response = llm_call(prompt)
+        if hasattr(response, "__iter__") and not isinstance(response, (str, bytes)):
+            yield from response
+        else:
+            yield response
 
     async def arun(
         self,
@@ -213,9 +224,24 @@ class ContextEngine:
         user_prompt: str,
         context: Union[str, Sequence[str]],
         llm_call: Callable[[str], Awaitable[Any]],
+        stream: bool = False,
     ) -> Any:
         final_prompt, report = self.build_prompt(user_prompt=user_prompt, context=context)
         self.last_report = report
         self._emit_report(report)
+
+        if stream:
+            return self._stream_async(final_prompt, llm_call)
         return await llm_call(final_prompt)
+
+    async def _stream_async(self, prompt: str, llm_call: Callable[[str], Awaitable[Any]]) -> AsyncIterator[Any]:
+        response = await llm_call(prompt)
+        if hasattr(response, "__aiter__"):
+            async for chunk in response:
+                yield chunk
+        elif hasattr(response, "__iter__") and not isinstance(response, (str, bytes)):
+            for chunk in response:
+                yield chunk
+        else:
+            yield response
 
