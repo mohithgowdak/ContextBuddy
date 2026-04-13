@@ -6,9 +6,11 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/contextbuddy/"><img src="https://img.shields.io/pypi/v/contextbuddy?color=blue" alt="PyPI"></a>
-  <a href="https://pypi.org/project/contextbuddy/"><img src="https://img.shields.io/pypi/pyversions/contextbuddy" alt="Python"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/yourname/contextbuddy" alt="License"></a>
+  <a href="https://github.com/mohithgowdak/ContextBuddy"><img src="https://img.shields.io/github/stars/mohithgowdak/ContextBuddy?style=social" alt="Stars"></a>
+  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mohithgowdak/ContextBuddy" alt="License"></a>
+  <img src="https://img.shields.io/badge/dependencies-0_(core)-brightgreen" alt="Deps">
 </p>
 
 <!-- TODO: Replace with actual GIF recording of the CLI demo -->
@@ -27,7 +29,48 @@
 
 ---
 
-## Why ContextBuddy?
+## What is ContextBuddy?
+
+ContextBuddy is a **lightweight, open-source Python library** that acts as a context middleware between your raw data (PDFs, web pages, documents, databases) and your LLM call. Its entire job is to take a massive, messy prompt -- like 20 pages of scraped text -- compress it, filter out the noise, preserve critical entities, and pass a clean, token-efficient prompt to any LLM.
+
+Think of it as the **missing layer** in every AI stack: the part that makes sure you're not paying for 15,000 tokens when only 3,000 actually matter.
+
+---
+
+## The Problem
+
+Every developer building with LLMs hits the same wall:
+
+1. **You're overpaying.** You send 15,000 tokens of scraped text to GPT-4 when only 3,000 tokens actually matter. That's 5x the cost for worse results.
+2. **Context is noisy.** Raw PDFs, web scrapes, and database dumps are full of irrelevant paragraphs, boilerplate, and filler. Your LLM wastes attention on noise.
+3. **Critical details get lost.** When you manually truncate context to save tokens, you accidentally drop the one invoice ID or date the user asked about.
+4. **Existing frameworks are bloated.** LangChain has 100+ dependencies. LlamaIndex has 50+. You just want to load a PDF and ask a question.
+
+---
+
+## The Solution
+
+ContextBuddy solves all four problems in a single library:
+
+- **Semantic pruning** -- scores every paragraph against your question and drops irrelevant content before it hits the expensive model.
+- **Entity preservation** -- automatically extracts IDs, dates, URLs, phone numbers, and other critical data points, ensuring they are never accidentally pruned.
+- **Token budgeting** -- enforces a strict token limit so your context always fits the window you set.
+- **ROI telemetry** -- prints exactly how many tokens (and dollars) you saved on every call. Developers screenshot this and share it.
+
+It works with **any LLM** -- OpenAI, Anthropic, Google, or local models -- because it only touches the prompt, not the model.
+
+---
+
+## Who is this for?
+
+- **AI engineers** building RAG pipelines who want to cut API costs without sacrificing answer quality.
+- **Startups** shipping LLM-powered products who need to keep their OpenAI/Anthropic bill under control.
+- **Solo developers** who want multi-doc RAG without installing LangChain and 100 transitive dependencies.
+- **Agent builders** who need their tools to pass compressed, high-signal context to function calls.
+
+---
+
+## Why ContextBuddy over the alternatives?
 
 | Feature | LangChain | LlamaIndex | LightRAG | **ContextBuddy** |
 |---------|-----------|------------|----------|-|
@@ -373,7 +416,7 @@ ContextBuddy is **compression-first**. LangChain retrieves context but sends it 
 ## Contributing
 
 ```bash
-git clone https://github.com/yourname/contextbuddy.git
+git clone https://github.com/mohithgowdak/ContextBuddy.git
 cd contextbuddy
 pip install -e ".[dev]"
 pytest
