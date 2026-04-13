@@ -63,10 +63,25 @@ It works with **any LLM** -- OpenAI, Anthropic, Google, or local models -- becau
 
 ## Who is this for?
 
+ContextBuddy works at every scale. The value just shows up differently:
+
+| Scale | How they use it | Why it matters |
+|-------|----------------|----------------|
+| **Solo dev / hobbyist** | Drop-in middleware, skip LangChain entirely | Zero deps, 3 lines, no infrastructure to manage |
+| **Startup (seed to Series A)** | Full pipeline replacing LangChain stack | Cut API bill from $10k to $3k/month, ship in days not weeks |
+| **Mid-size company** | Compression layer inside their existing LangChain/LlamaIndex stack | Bolt on to existing code, save 60% without rewriting anything |
+| **Enterprise** | Cost governance + smart routing across teams | ROI telemetry for budgeting, model routing to manage spend at scale |
+
+The bigger the company, the more they overpay on tokens. A team running 1M LLM calls/day is burning $30k+/month in unnecessary tokens. A compression middleware that saves 60% is worth $18k/month to them -- and it plugs in with 3 lines.
+
+Specifically built for:
+
 - **AI engineers** building RAG pipelines who want to cut API costs without sacrificing answer quality.
 - **Startups** shipping LLM-powered products who need to keep their OpenAI/Anthropic bill under control.
 - **Solo developers** who want multi-doc RAG without installing LangChain and 100 transitive dependencies.
+- **Platform teams** who need cost visibility and governance over LLM spend across the organization.
 - **Agent builders** who need their tools to pass compressed, high-signal context to function calls.
+- **Anyone already using LangChain/LlamaIndex** who wants to cut costs without rewriting -- just drop ContextBuddy into your existing pipeline as a compression step.
 
 ---
 
@@ -391,6 +406,82 @@ report.entities                 # ["INV-92831", "2026-04-01", ...]
 
 ---
 
+## Real-World Use Cases
+
+### Customer Support Bot
+
+Your chatbot pulls a customer's full history (invoices, tickets, emails, notes) for every query -- ~15,000 tokens. Most of it is irrelevant.
+
+```python
+from contextbuddy import Pipeline
+
+pipeline = Pipeline.from_directory("./customer_data/acct_12345/", dev_mode=True, max_context_tokens=3000)
+answer = pipeline.query("What was my last invoice amount?", llm_call=my_llm)
+# [ContextBuddy] 15000 → 2800 tokens (81.3% reduction). Est. savings: $0.0305
+# Entity keep-list preserved: INV-92831, $4,500.00, 2026-04-01, acct_12345
+```
+
+At 10,000 queries/day: **$11,250/month without ContextBuddy vs $2,250/month with it.**
+
+### Legal Document Review
+
+A law firm uploads a 50-page contract. Lawyers ask questions about specific clauses.
+
+```python
+from contextbuddy import Pipeline
+
+pipeline = Pipeline.from_directory("./contracts/", dev_mode=True, max_context_tokens=4000)
+answer = pipeline.query("What are the payment terms and late penalties?", llm_call=my_llm)
+```
+
+ContextBuddy loads the PDF, indexes 200+ paragraphs, retrieves the relevant ones, prunes to the 5 that matter, and preserves all clause numbers, dates, and dollar amounts. Without it, you'd need LangChain + a vector database + 50 lines of glue code.
+
+### Internal Knowledge Base
+
+500 internal docs (Confluence exports, PDFs, Markdown). Engineers ask questions via Slack bot.
+
+```python
+from contextbuddy import Pipeline, PersistentStore, Router
+
+pipeline = Pipeline(
+    store=PersistentStore("./index.json"),
+    router=Router([
+        {"max_complexity": 0.3, "model": "gpt-4o-mini"},
+        {"max_complexity": 1.0, "model": "gpt-4o"},
+    ]),
+    dev_mode=True,
+)
+pipeline.add("./company_docs/")
+answer = pipeline.query(slack_message, llm_calls={"gpt-4o-mini": cheap_fn, "gpt-4o": expensive_fn})
+```
+
+Simple questions ("What's the WiFi password?") route to the cheap model. Complex questions ("Compare our auth architecture options") route to the expensive one. **Router alone saves 60-70% on top of compression.**
+
+---
+
+## When NOT to Use ContextBuddy
+
+Being honest:
+
+- **Full agent orchestration** (multi-step reasoning, tool chains, long-term memory) -- use LangGraph or CrewAI instead. ContextBuddy compresses context, it doesn't orchestrate agents.
+- **Billion-scale vector search** -- if you have 100M+ documents and need sub-millisecond search, use Pinecone or Weaviate directly. ContextBuddy's in-memory store is designed for <100k chunks.
+- **Already deep in LangChain and it's working** -- don't rewrite. But you *can* drop ContextBuddy inside your existing LangChain pipeline as a compression step:
+
+```python
+from contextbuddy import ContextEngine
+
+engine = ContextEngine(max_context_tokens=4000)
+
+# Inside your LangChain chain, after retrieval but before the LLM call:
+compressed_prompt, report = engine.build_prompt(
+    user_prompt=user_question,
+    context=retrieved_documents,   # from your existing LangChain retriever
+)
+# Pass compressed_prompt to your LLM instead of the raw retrieved docs
+```
+
+---
+
 ## FAQ
 
 **Will this hurt answer quality?**
@@ -410,6 +501,33 @@ Yes. The core pipeline is deterministic, dependency-free, and fast (<10ms for ty
 
 **How is this different from LangChain?**
 ContextBuddy is **compression-first**. LangChain retrieves context but sends it all to the LLM. ContextBuddy retrieves, compresses, preserves entities, and shows you exactly how much you're saving. Zero core dependencies vs 100+.
+
+---
+
+## Why I Built This
+
+I'm a Recent CS Grad. I was deep in the rabbit hole of context engineering -- reading papers, watching talks, experimenting with how LLMs actually use the context you feed them. And I kept hitting the same wall.
+
+I had a project that needed RAG. Load some PDFs, ask questions, get answers. Simple, right? So I reached for LangChain. And then I spent two days wrestling with 100+ dependencies, cryptic abstractions, and a codebase that felt like it was designed for a different problem. I just wanted to load a PDF and compress the context before sending it to an LLM. I didn't need an agent framework. I didn't need a plugin ecosystem. I needed maybe 200 lines of focused code.
+
+So I closed my laptop, went for a walk, and thought: **what if the entire layer between "raw data" and "LLM call" was just... simple?**
+
+That's what ContextBuddy is. It's the library I wished existed when I started.
+
+The core insight was that most LLM applications are sending 5-10x more context than they need to. You scrape a 50-page contract, dump the whole thing into GPT-4, and pay for 15,000 tokens when only 3,000 matter. The LLM doesn't even perform better with the extra noise -- it performs *worse*. Context engineering isn't about stuffing more tokens in. It's about sending the *right* tokens.
+
+I built ContextBuddy with a few principles:
+
+1. **Zero dependencies for the core.** If you just want to compress text, you shouldn't need to install anything else. No numpy. No torch. No tiktoken. Just Python.
+2. **Three lines to integrate.** If it takes more than that, developers will bounce. I know because I bounced.
+3. **Show the ROI.** Every call prints exactly how many tokens and dollars you saved. Not because it's a gimmick -- because developers need to justify tool choices to their managers, and a screenshot of "$0.12 saved per call" does that instantly.
+4. **Grow with you.** Start with 3 lines. When you need PDF loading, add it. When you need a vector store, add it. When you need model routing, add it. You should never have to rip out ContextBuddy and replace it with LangChain because you outgrew it.
+
+I'm not claiming this replaces LangChain for every use case. If you need multi-step agent orchestration with tool chains and long-term memory, LangChain/LangGraph is the right call. But for the 80% of LLM applications that just need to load data, compress context, and call a model? ContextBuddy does it in a fraction of the code, with zero bloat, and it shows you exactly how much money you're saving.
+
+This started as a side project born out of frustration. I'm sharing it because I think every developer building with LLMs deserves a simpler option.
+
+If it saves you time or money, star the repo. That's all I ask.
 
 ---
 
