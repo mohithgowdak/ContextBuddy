@@ -214,6 +214,58 @@ Every layer is optional. Use one, use all, or use any combination.
 
 ---
 
+## How Compression Actually Works (No ML, No NumPy)
+
+ContextBuddy doesn't use a neural network to compress your context. The entire pipeline is algorithmic, using techniques that predate deep learning by decades. Here's exactly what happens when you call `engine.run()`:
+
+### Step 1: Chunking
+
+Your raw text (from a PDF, web scrape, or string) is split into paragraphs using regex on double newlines. Tiny fragments under 40 characters are dropped as noise.
+
+### Step 2: Relevance Scoring (the hash trick)
+
+Each paragraph is converted into a 256-dimensional vector using a **hashing trick**: every word gets hashed via Python's built-in `hash()` to a dimension, and accumulates +1 or -1. The result is a fingerprint of the word distribution. Then **cosine similarity** (dot product / magnitudes) is computed between the question's vector and each paragraph's vector -- all in pure Python, no numpy.
+
+Paragraphs that share keywords with your question score high. Paragraphs about unrelated topics score low and get pruned.
+
+### Step 3: Entity Extraction
+
+Regex patterns scan every paragraph for critical data: emails, URLs, dates, dollar amounts, IDs, phone numbers, ticket numbers, etc. Any paragraph containing a detected entity is **force-kept** regardless of its relevance score, so you never accidentally drop the invoice ID the user asked about.
+
+### Step 4: Budget Enforcement
+
+The surviving paragraphs are sorted by importance (entity-containing chunks first, then by relevance score) and greedily packed into the token budget. If even a single chunk won't fit, it's extractively summarized (leading sentences kept until the limit). The final prompt always fits the budget you set.
+
+### The Synonym Limitation (and the one-line fix)
+
+The default `LocalHashEmbedder` measures **literal word overlap**. If the user asks about "car insurance" but the paragraph says "automobile coverage," those words hash to different positions and get zero overlap -- the paragraph might be incorrectly pruned.
+
+**Why it still works for most use cases:** domain documents are repetitive (contracts say "payment" in the payment section, not "remittance"), the entity safety net catches critical data regardless, and the default threshold (`min_relevance=0.15`) is very permissive.
+
+**When you need true semantic understanding** (medical docs, legal language, multilingual content), swap in a real embedding model with one line:
+
+```python
+from contextbuddy.embedder import OpenAIEmbedder
+
+engine = ContextEngine(
+    ContextEngineConfig(max_context_tokens=4000, dev_mode=True),
+    embedder=OpenAIEmbedder(),  # understands "car" ≈ "automobile"
+)
+```
+
+| | `LocalHashEmbedder` (default) | `OpenAIEmbedder` (opt-in) |
+|--|--|--|
+| Understands synonyms | No | Yes |
+| Needs API key | No | Yes |
+| Needs internet | No | Yes |
+| Dependencies | Zero | `openai` package |
+| Cost per document | Free | ~$0.0002 |
+| Latency | Instant | ~200ms |
+
+The money you save on the LLM call (compressing 15k tokens to 3k) dwarfs the embedding cost by 100x. You can also write your own embedder using Sentence Transformers, Cohere, or any model -- any class with an `embed(texts) -> List[List[float]]` method works.
+
+---
+
 ## Document Loaders
 
 ```python
