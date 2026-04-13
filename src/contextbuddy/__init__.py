@@ -8,14 +8,23 @@ from .store.persistent import PersistentStore
 from .loaders import load
 from .router import Router, RouteRule, score_complexity
 from .cache import EmbeddingCache, ResponseCache, CachedEmbedder
+from .hybrid_scorer import HybridScorer
+from .scoring import SemanticScorer
+from .stemmer import stem, tokenize_and_stem
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # Core
     "ContextEngine",
     "ContextEngineConfig",
     "ContextReport",
+    # Scoring
+    "HybridScorer",
+    "SemanticScorer",
+    # Stemmer
+    "stem",
+    "tokenize_and_stem",
     # Loaders
     "load",
     # Store

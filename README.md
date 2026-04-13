@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/mohithgowdak/ContextBuddy"><img src="https://img.shields.io/github/stars/mohithgowdak/ContextBuddy?style=social" alt="Stars"></a>
-  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/mohithgowdak/ContextBuddy" alt="License"></a>
   <img src="https://img.shields.io/badge/dependencies-0_(core)-brightgreen" alt="Deps">
@@ -216,17 +216,38 @@ Every layer is optional. Use one, use all, or use any combination.
 
 ## How Compression Actually Works (No ML, No NumPy)
 
-ContextBuddy doesn't use a neural network to compress your context. The entire pipeline is algorithmic, using techniques that predate deep learning by decades. Here's exactly what happens when you call `engine.run()`:
+ContextBuddy doesn't use a neural network to compress your context. The entire pipeline is algorithmic, using techniques that predate deep learning by decades -- but combined in a way that delivers results competitive with embedding-based approaches. Here's exactly what happens when you call `engine.run()`:
 
 ### Step 1: Chunking
 
 Your raw text (from a PDF, web scrape, or string) is split into paragraphs using regex on double newlines. Tiny fragments under 40 characters are dropped as noise.
 
-### Step 2: Relevance Scoring (the hash trick)
+### Step 2: Relevance Scoring (HybridScorer -- the secret sauce)
 
-Each paragraph is converted into a 256-dimensional vector using a **hashing trick**: every word gets hashed via Python's built-in `hash()` to a dimension, and accumulates +1 or -1. The result is a fingerprint of the word distribution. Then **cosine similarity** (dot product / magnitudes) is computed between the question's vector and each paragraph's vector -- all in pure Python, no numpy.
+This is where ContextBuddy is different from every other compression library. Instead of relying on a single signal, the default `HybridScorer` combines **four independent scoring signals** into one relevance score:
 
-Paragraphs that share keywords with your question score high. Paragraphs about unrelated topics score low and get pruned.
+**Signal 1: BM25 (70% weight)** -- The same algorithm that powers Elasticsearch and Lucene. It handles term-frequency saturation (saying "payment" 10 times isn't 10x more relevant than once), document-length normalization (longer paragraphs don't cheat the ranking), and inverse-document-frequency weighting (rare words matter more than common ones). This alone is a massive upgrade over naive keyword matching.
+
+**Signal 2: Stemming (built into BM25)** -- A lightweight suffix-stripping stemmer normalizes word forms before scoring. "payments" matches "payment". "running" matches "run". "organized" matches "organizing". No NLTK, no spaCy -- just 120 lines of pure Python implementing the most impactful Porter stemmer rules.
+
+**Signal 3: Synonym Expansion (15% weight)** -- A built-in thesaurus of ~200 word groups covering business, legal, tech, medical, and general vocabulary. When you ask about "car insurance," the scorer automatically expands "car" to also check for "automobile," "vehicle," and "auto" in every paragraph. "Buy" matches "purchase." "Salary" matches "compensation." "Error" matches "bug." All offline, zero API calls.
+
+**Signal 4: Character N-gram Fuzzy Matching (15% weight)** -- Catches morphological variants and typos that stemming misses. "optimise" matches "optimize." "colour" matches "color." Works by computing Jaccard similarity over character trigrams -- if two words share enough 3-character substrings, they're treated as partial matches.
+
+The four signals are normalized to [0, 1] and combined with configurable weights. The result: paragraphs that are genuinely relevant to your question score high, even when they use completely different words.
+
+```python
+from contextbuddy import HybridScorer
+
+scorer = HybridScorer()
+scores = scorer.score(
+    query="What is the car insurance policy?",
+    chunks=[
+        "The automobile coverage plan includes collision and liability.",  # scores HIGH (synonym match)
+        "Employee cafeteria hours are 12pm to 2pm.",                      # scores LOW (irrelevant)
+    ],
+)
+```
 
 ### Step 3: Entity Extraction
 
@@ -236,33 +257,32 @@ Regex patterns scan every paragraph for critical data: emails, URLs, dates, doll
 
 The surviving paragraphs are sorted by importance (entity-containing chunks first, then by relevance score) and greedily packed into the token budget. If even a single chunk won't fit, it's extractively summarized (leading sentences kept until the limit). The final prompt always fits the budget you set.
 
-### The Synonym Limitation (and the one-line fix)
+### Scorer Comparison
 
-The default `LocalHashEmbedder` measures **literal word overlap**. If the user asks about "car insurance" but the paragraph says "automobile coverage," those words hash to different positions and get zero overlap -- the paragraph might be incorrectly pruned.
+| | `HybridScorer` (default) | `SemanticScorer` + `LocalHashEmbedder` | `SemanticScorer` + `OpenAIEmbedder` |
+|--|--|--|--|
+| Understands synonyms | **Yes** (built-in thesaurus) | No | Yes |
+| Handles word forms | **Yes** (stemming) | No | Yes |
+| Fuzzy matching | **Yes** (n-grams) | No | No |
+| IDF weighting | **Yes** (BM25) | No | Yes |
+| Needs API key | **No** | No | Yes |
+| Needs internet | **No** | No | Yes |
+| Dependencies | **Zero** | Zero | `openai` package |
+| Cost | **Free** | Free | ~$0.0002/doc |
+| Latency | **<5ms** | <2ms | ~200ms |
 
-**Why it still works for most use cases:** domain documents are repetitive (contracts say "payment" in the payment section, not "remittance"), the entity safety net catches critical data regardless, and the default threshold (`min_relevance=0.15`) is very permissive.
-
-**When you need true semantic understanding** (medical docs, legal language, multilingual content), swap in a real embedding model with one line:
+The `HybridScorer` is the default because it gives the best results for zero cost and zero dependencies. For production use cases with highly specialized vocabulary (niche medical terms, non-English content), you can still swap in `OpenAIEmbedder` for true neural semantic matching:
 
 ```python
 from contextbuddy.embedder import OpenAIEmbedder
 
 engine = ContextEngine(
     ContextEngineConfig(max_context_tokens=4000, dev_mode=True),
-    embedder=OpenAIEmbedder(),  # understands "car" ≈ "automobile"
+    embedder=OpenAIEmbedder(),  # neural embeddings for edge cases
 )
 ```
 
-| | `LocalHashEmbedder` (default) | `OpenAIEmbedder` (opt-in) |
-|--|--|--|
-| Understands synonyms | No | Yes |
-| Needs API key | No | Yes |
-| Needs internet | No | Yes |
-| Dependencies | Zero | `openai` package |
-| Cost per document | Free | ~$0.0002 |
-| Latency | Instant | ~200ms |
-
-The money you save on the LLM call (compressing 15k tokens to 3k) dwarfs the embedding cost by 100x. You can also write your own embedder using Sentence Transformers, Cohere, or any model -- any class with an `embed(texts) -> List[List[float]]` method works.
+Or bring your own scorer -- any object with a `score(query=..., chunks=...) -> List[float]` method works.
 
 ---
 

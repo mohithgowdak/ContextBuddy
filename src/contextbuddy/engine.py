@@ -8,6 +8,7 @@ from .budget import BudgetEnforcer
 from .chunking import Chunker
 from .embedder import LocalHashEmbedder
 from .entities import EntityExtractor
+from .hybrid_scorer import HybridScorer
 from .pricing import OPENAI_GPT4O_MINI
 from .scoring import SemanticScorer
 from .tokenizer import HeuristicTokenizer
@@ -63,6 +64,7 @@ class ContextEngine:
         embedder: Optional[Embedder] = None,
         tokenizer: Optional[Tokenizer] = None,
         entity_extractor: Optional[EntityExtractor] = None,
+        scorer: Optional[object] = None,
     ):
         self.config = config
         self.embedder = embedder or LocalHashEmbedder()
@@ -70,7 +72,12 @@ class ContextEngine:
         self.entity_extractor = entity_extractor or EntityExtractor()
 
         self._chunker = Chunker(min_chars=config.chunk_min_chars)
-        self._scorer = SemanticScorer(embedder=self.embedder)
+        if scorer is not None:
+            self._scorer = scorer
+        elif embedder is not None:
+            self._scorer = SemanticScorer(embedder=self.embedder)
+        else:
+            self._scorer = HybridScorer()
         self._budget = BudgetEnforcer(tokenizer=self.tokenizer)
 
         self.last_report: Optional[ContextReport] = None

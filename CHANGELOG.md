@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.0 (2026-04-13)
+
+HybridScorer: a new default relevance engine that makes compression dramatically smarter -- still zero dependencies.
+
+### New: HybridScorer (`contextbuddy.hybrid_scorer`)
+- **BM25 scoring** -- the algorithm behind Elasticsearch. Handles term-frequency saturation, document-length normalization, and IDF weighting. Replaces the old hash-based cosine similarity as the default scorer.
+- **Lightweight stemmer** (`contextbuddy.stemmer`) -- pure-Python suffix-stripping stemmer. "payments" matches "payment", "running" matches "run". No NLTK required.
+- **Built-in synonym thesaurus** (`contextbuddy.synonyms`) -- ~200 word groups covering business, legal, tech, medical, and general vocabulary. "car" matches "automobile", "buy" matches "purchase", "error" matches "bug". All offline.
+- **Character n-gram fuzzy matching** -- catches typos and spelling variants (e.g. "optimise" vs "optimize") via Jaccard similarity over character trigrams.
+- Weighted combination: BM25 (70%) + synonym bonus (15%) + n-gram bonus (15%), all configurable.
+
+### Changed
+- `ContextEngine` now uses `HybridScorer` by default instead of `SemanticScorer` + `LocalHashEmbedder`.
+- If you pass a custom `embedder=`, the engine falls back to the old `SemanticScorer` for backward compatibility.
+- New `scorer=` parameter on `ContextEngine` to inject any custom scorer.
+- Version bumped to 0.3.0.
+
+### Backward Compatibility
+- `SemanticScorer` and `LocalHashEmbedder` are still available and fully supported.
+- All existing tests pass without changes.
+
+---
+
 ## v0.2.0 (2026-04-13)
 
 Full-stack context pipeline. ContextBuddy is now a complete LangChain alternative.
