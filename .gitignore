@@ -14,6 +14,10 @@ venv/
 ENV/
 env/
 
+# Bench / reports
+bench-*.json
+benchmarks/results/
+
 # IDE
 .vscode/
 .idea/

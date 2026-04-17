@@ -151,6 +151,19 @@ When you're ready to call an LLM, use `engine.run(...)` (sync) or `engine.arun(.
 
 ---
 
+## Benchmarks (quality gate)
+
+ContextBuddy includes a small benchmark harness so “more compression” doesn’t silently break correctness.
+
+```bash
+python -m pip install -e .
+python -m contextbuddy bench --gate --json bench-report.json
+```
+
+See `docs/benchmarks.md` and `benchmarks/datasets/v0.sample.json`.
+
+---
+
 ## What ContextBuddy guarantees
 
 - **Entity survival.** Any regex-matched entity (IDs, emails, URLs, dates, money, tickets, phones, UUIDs, version strings) always survives compression.
