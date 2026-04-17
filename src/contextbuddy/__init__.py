@@ -1,4 +1,4 @@
-from .engine import ContextEngine, ContextEngineConfig, ContextReport
+from .engine import ContextEngine, ContextEngineConfig, ContextReport, CompressionEvent
 from .pricing import get_pricing, PRESETS
 from .wrappers import wrap_openai, WrappedClient
 from .retriever import Retriever
@@ -20,6 +20,7 @@ __all__ = [
     "ContextEngine",
     "ContextEngineConfig",
     "ContextReport",
+    "CompressionEvent",
     # Contracts (Protocols — duck typed)
     "Embedder",
     "AsyncEmbedder",
