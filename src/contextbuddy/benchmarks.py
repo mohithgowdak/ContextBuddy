@@ -36,6 +36,11 @@ def default_dataset() -> List[BenchmarkCase]:
     still contains the answer-bearing text (substring proxy), and whether
     injected entities survive.
     """
+    # Make docs long enough that the default bench budget forces pruning,
+    # otherwise mean_reduction becomes ~0% and the harness is misleading.
+    noise = "\n\n".join([("Unrelated boilerplate text. " * 80) for _ in range(25)])
+    code_noise = "\n".join(["# filler comment"] * 1200)
+
     return [
         BenchmarkCase(
             name="legal/payment-terms",
@@ -46,7 +51,7 @@ def default_dataset() -> List[BenchmarkCase]:
                 "ARTICLE III - TERMINATION\n"
                 "3.1 Either Party may terminate with 30 days notice.\n"
             )
-            + ("\n\n" + ("Boilerplate recital text. " * 50)),
+            + ("\n\n" + noise),
             question="What are the payment terms?",
             expected_substring="Payment due within 30 days",
         ),
@@ -57,7 +62,7 @@ def default_dataset() -> List[BenchmarkCase]:
                 "Invoice INV-92831 issued 2026-04-01 for account_id=acct_12345. "
                 "Amount: $4,500.00 USD. Payment due within 30 days.\n\n"
             )
-            + ("\n\n" + ("Unrelated planning notes. " * 80)),
+            + ("\n\n" + noise),
             question="What is the invoice ID and date?",
             expected_substring="INV-92831 issued 2026-04-01",
             required_entities=("INV-92831", "2026-04-01", "acct_12345"),
@@ -72,7 +77,7 @@ def default_dataset() -> List[BenchmarkCase]:
                 "def other() -> str:\n"
                 "    return 'ok'\n\n"
             )
-            + ("\n" + ("# filler comment\n" * 200)),
+            + ("\n" + code_noise + "\n"),
             question="What does compute_total return?",
             expected_substring="return y",
         ),
@@ -112,7 +117,15 @@ def run_benchmarks(
     *,
     config: Optional[ContextEngineConfig] = None,
 ) -> BenchmarkResult:
-    engine = ContextEngine(config or ContextEngineConfig(max_context_tokens=1200, dev_mode=False))
+    # Bench harness runs in conservative mode by default to minimize silent recall misses.
+    engine = ContextEngine(
+        config
+        or ContextEngineConfig(
+            max_context_tokens=1200,
+            dev_mode=False,
+            conservative_mode=True,
+        )
+    )
 
     answer_ok = 0
     entity_ok = 0

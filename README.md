@@ -13,7 +13,17 @@
   <img src="https://img.shields.io/badge/dependencies-0_(core)-brightgreen" alt="Deps">
 </p>
 
-<!-- TODO: Replace with actual GIF recording of the CLI demo -->
+<p align="center">
+  <a href="docs/demo.md">Create the demo GIF</a> •
+  Drop it at <code>assets/cli-demo.gif</code>
+</p>
+
+<!-- Once recorded, uncomment this:
+<p align="center">
+  <img src="assets/cli-demo.gif" alt="ContextBuddy CLI demo" width="820" />
+</p>
+-->
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │                   ContextBuddy                       │
@@ -164,6 +174,12 @@ See `docs/benchmarks.md` and `benchmarks/datasets/v0.sample.json`.
 
 ---
 
+## Docs
+
+Start at `docs/index.md`.
+
+---
+
 ## What ContextBuddy guarantees
 
 - **Entity survival.** Any regex-matched entity (IDs, emails, URLs, dates, money, tickets, phones, UUIDs, version strings) always survives compression.
@@ -283,7 +299,14 @@ ContextBuddy doesn't use a neural network to compress your context. The entire p
 
 ### Step 1: Chunking
 
-Your raw text (from a PDF, web scrape, or string) is split into paragraphs using regex on double newlines. Tiny fragments under 40 characters are dropped as noise.
+Your raw text (PDF/web/code/plain text) is chunked into **coherent units** using a document-aware chunker:
+
+- **Generic text**: paragraph/sentence-aware merging (avoids tiny orphan fragments)
+- **PDF**: normalizes line-break artifacts and avoids page-wise chunking
+- **Contracts**: groups clause/section headers with their bodies (keeps related content together)
+- **Python code**: keeps imports + functions/classes intact (no mid-function splits)
+
+The goal is not “more chunks” — it’s **better chunk boundaries**, so relevance scoring and budgeting keep the right information with fewer tokens.
 
 ### Step 2: Relevance Scoring (HybridScorer -- the secret sauce)
 

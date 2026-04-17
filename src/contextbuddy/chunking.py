@@ -127,6 +127,27 @@ def _looks_like_legal(text: str) -> bool:
     headers = len(_LEGAL_HEADER_RE.findall(text))
     return headers >= 4
 
+_PY_CODE_DEF_RE = re.compile(r"^\s*(def|class)\s+[A-Za-z_]\w*\b", re.MULTILINE)
+
+
+def _looks_like_python_code(text: str) -> bool:
+    """
+    Heuristic to detect Python source text when doc_type='auto'.
+
+    We keep this conservative to avoid misclassifying prose with 'def'/'class'.
+    """
+    if not text:
+        return False
+    # def/class + indentation suggests code.
+    defs = len(_PY_CODE_DEF_RE.findall(text))
+    if defs < 1:
+        return False
+    lines = text.splitlines()
+    if not lines:
+        return False
+    indented = sum(1 for ln in lines if ln.startswith(("    ", "\t")))
+    return indented >= 2
+
 
 @dataclass(frozen=True)
 class SmartChunker:
@@ -158,6 +179,8 @@ class SmartChunker:
 
         if dt == "auto" and _looks_like_legal(text):
             return self._chunk_legal(text)
+        if dt == "auto" and _looks_like_python_code(text):
+            return self._chunk_python(text)
 
         chunks = Chunker(min_chars=self.min_chars, merge_under_chars=self.merge_under_chars).chunk(text)
         if not chunks and text.strip():
@@ -209,6 +232,39 @@ class SmartChunker:
                 cur.append(ln)
         flush()
 
+        # Split off huge trailing comment tails from code blocks.
+        # This prevents large comment dumps from diluting relevance scoring
+        # for the function/class definitions above.
+        split_blocks: List[str] = []
+        for b in blocks:
+            bl = b.splitlines()
+            if len(bl) < 120:
+                split_blocks.append(b)
+                continue
+
+            # Count trailing top-level-ish comment lines.
+            i = len(bl) - 1
+            comment_run = 0
+            while i >= 0:
+                s = bl[i].lstrip()
+                if s.startswith("#") and not bl[i].startswith(("    ", "\t")):
+                    comment_run += 1
+                    i -= 1
+                    continue
+                break
+
+            if comment_run >= 80 and i >= 0:
+                main = "\n".join(bl[: i + 1]).rstrip()
+                tail = "\n".join(bl[i + 1 :]).rstrip()
+                if main.strip():
+                    split_blocks.append(main)
+                if tail.strip():
+                    split_blocks.append(tail)
+            else:
+                split_blocks.append(b)
+
+        blocks = split_blocks
+
         # Pack blocks into target size; never split a block mid-function/class.
         target = max(800, int(self.legal_target_chars))
         chunks: List[str] = []
@@ -219,9 +275,10 @@ class SmartChunker:
                 buf = [b]
                 buf_len = len(b)
                 continue
-            if buf_len < target:
+            prospective = buf_len + 2 + len(b)
+            if buf_len < target and prospective <= int(target * 1.15):
                 buf.append(b)
-                buf_len += 2 + len(b)
+                buf_len = prospective
                 continue
             chunks.append("\n\n".join(buf).strip())
             buf = [b]

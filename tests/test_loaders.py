@@ -92,6 +92,22 @@ def test_load_directory() -> None:
         assert any("Document B" in c for c in chunks)
 
 
+def test_load_directory_ignores_default_junk_dirs() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        junk = root / ".venv" / "Lib" / "site-packages"
+        junk.mkdir(parents=True, exist_ok=True)
+        (junk / "x.py").write_text("def should_not_load():\n    return 1\n", encoding="utf-8")
+
+        good = root / "app.py"
+        good.write_text("def should_load():\n    return 2\n", encoding="utf-8")
+
+        chunks = load_directory(d, prefix_source=False)
+        joined = "\n\n".join(chunks)
+        assert "should_load" in joined
+        assert "should_not_load" not in joined
+
+
 def test_load_directory_prefixes_source() -> None:
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "notes.txt"

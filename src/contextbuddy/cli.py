@@ -215,7 +215,11 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     from .engine import ContextEngineConfig
 
     cases = load_dataset(args.dataset) if args.dataset else default_dataset()
-    cfg = ContextEngineConfig(max_context_tokens=int(args.max_tokens), dev_mode=False)
+    cfg = ContextEngineConfig(
+        max_context_tokens=int(args.max_tokens),
+        dev_mode=False,
+        conservative_mode=True,
+    )
     result = run_benchmarks(cases, config=cfg)
 
     sys.stdout.write(format_summary(result) + "\n")
