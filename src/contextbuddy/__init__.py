@@ -11,6 +11,7 @@ from .cache import EmbeddingCache, ResponseCache, CachedEmbedder
 from .hybrid_scorer import HybridScorer
 from .scoring import SemanticScorer
 from .stemmer import stem, tokenize_and_stem
+from .types import Embedder, AsyncEmbedder, Tokenizer
 
 __version__ = "0.3.0"
 
@@ -19,6 +20,10 @@ __all__ = [
     "ContextEngine",
     "ContextEngineConfig",
     "ContextReport",
+    # Contracts (Protocols — duck typed)
+    "Embedder",
+    "AsyncEmbedder",
+    "Tokenizer",
     # Scoring
     "HybridScorer",
     "SemanticScorer",

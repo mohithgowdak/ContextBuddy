@@ -21,3 +21,4 @@ env/
 # OS
 Thumbs.db
 Desktop.ini
+.cursor/

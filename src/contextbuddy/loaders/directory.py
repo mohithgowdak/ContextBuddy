@@ -7,6 +7,8 @@ _DEFAULT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".csv", ".json", ".jsonl",
     ".log", ".xml", ".yaml", ".yml", ".rst", ".html", ".htm",
     ".pdf", ".docx",
+    # Codebases (python-only for now)
+    ".py",
 }
 
 

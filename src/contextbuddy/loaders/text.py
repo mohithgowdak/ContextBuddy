@@ -6,19 +6,39 @@ import json
 from pathlib import Path
 from typing import List
 
+from ..chunking import SmartChunker
 
-def load_text(path: str | Path) -> List[str]:
-    """Load a plain text file, splitting on double-newlines."""
+_SMART = SmartChunker()
+
+def load_code(path: str | Path) -> List[str]:
+    """Load a source code file into coherent chunks (SmartChunker doc_type=code)."""
     p = Path(path)
     content = p.read_text(encoding="utf-8", errors="replace")
-    return _split_paragraphs(content)
+    chunks = _SMART.chunk(content, doc_type="code")
+    if not chunks and content.strip():
+        return [content.strip()]
+    return chunks
+
+
+def load_text(path: str | Path) -> List[str]:
+    """Load a plain text file into coherent chunks (SmartChunker)."""
+    p = Path(path)
+    content = p.read_text(encoding="utf-8", errors="replace")
+    chunks = _SMART.chunk(content, doc_type="auto")
+    # Never return empty for non-empty files; fall back to raw text.
+    if not chunks and content.strip():
+        return [content.strip()]
+    return chunks
 
 
 def load_markdown(path: str | Path) -> List[str]:
-    """Load a Markdown file. Splits on headings and double-newlines."""
+    """Load a Markdown file into coherent chunks (SmartChunker)."""
     p = Path(path)
     content = p.read_text(encoding="utf-8", errors="replace")
-    return _split_paragraphs(content)
+    chunks = _SMART.chunk(content, doc_type="auto")
+    if not chunks and content.strip():
+        return [content.strip()]
+    return chunks
 
 
 def load_csv(path: str | Path) -> List[str]:
@@ -86,6 +106,8 @@ _EXT_MAP = {
     ".rst": load_text,
     ".html": load_text,
     ".htm": load_text,
+    # Code / config-ish
+    ".py": load_code,
 }
 
 

@@ -12,8 +12,10 @@ _sent_re = re.compile(r"(?<=[.!?])\s+")
 
 def extractive_summarize(text: str, *, max_chars: int) -> str:
     """
-    MVP summarizer: keeps leading sentences until max_chars.
-    Deterministic and dependency-free.
+    Sentence-safe summarizer: keeps leading sentences until max_chars.
+    Deterministic, dependency-free, and never cuts mid-sentence — the
+    loop bounds `total` before appending, so the assembled output is
+    always <= max_chars without needing an unsafe tail slice.
     """
     if max_chars <= 0:
         return ""
@@ -31,7 +33,7 @@ def extractive_summarize(text: str, *, max_chars: int) -> str:
         total += len(add)
         if total >= max_chars:
             break
-    return " ".join(out)[:max_chars].strip()
+    return " ".join(out).strip()
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,26 @@ class BudgetEnforcer:
         # Keep-chunks first, then by score desc.
         indexed.sort(key=lambda i: (0 if keep_mask[i] else 1, -float(scores[i])))
 
+        # If the keep-set alone can't fit, fall back to a single sentence-safe
+        # summary of the keep-set. This preserves entity context under extreme
+        # budgets instead of silently dropping "must keep" chunks.
+        keep_indices = [i for i in range(len(chunks)) if keep_mask[i]]
+        if keep_indices:
+            keep_text = "\n\n".join(chunks[i] for i in keep_indices).strip()
+            if keep_text and self.count_tokens(keep_text) > max_context_tokens:
+                max_chars = min(summary_max_chars, max(80, int(max_context_tokens * 4)))
+                summarized = extractive_summarize(keep_text, max_chars=max_chars)
+                char_budget = max_chars
+                while summarized and self.count_tokens(summarized) > max_context_tokens:
+                    char_budget = int(char_budget * 0.8)
+                    if char_budget < 40:
+                        summarized = ""
+                        break
+                    summarized = extractive_summarize(keep_text, max_chars=char_budget)
+                if summarized:
+                    # Index doesn't map cleanly; return a synthetic single chunk.
+                    return [summarized], [keep_indices[0]]
+
         selected: List[int] = []
         total = 0
 
@@ -78,12 +100,17 @@ class BudgetEnforcer:
             # This is a best-effort guardrail even with heuristic tokenizers.
             max_chars = min(summary_max_chars, max(80, int(max_context_tokens * 4)))
             summarized = extractive_summarize(chunks[best], max_chars=max_chars)
+            # Sentence-safe shrink: if still over budget, re-summarize at a
+            # smaller char budget. Never slice mid-sentence.
+            char_budget = max_chars
+            while summarized and self.count_tokens(summarized) > max_context_tokens:
+                char_budget = int(char_budget * 0.8)
+                if char_budget < 40:
+                    summarized = ""
+                    break
+                summarized = extractive_summarize(chunks[best], max_chars=char_budget)
             if summarized:
-                # Hard truncate until we fit the budget (best-effort).
-                while summarized and self.count_tokens(summarized) > max_context_tokens:
-                    summarized = summarized[: max(1, int(len(summarized) * 0.8))].rstrip()
-                if summarized:
-                    return [summarized], [best]
+                return [summarized], [best]
             return [], []
 
         # If we still exceed budget due to token estimator variance, trim tail by score (non-keep first).

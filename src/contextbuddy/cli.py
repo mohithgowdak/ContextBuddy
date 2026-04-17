@@ -30,6 +30,14 @@ def _build_parser() -> argparse.ArgumentParser:
     compress.add_argument("--no-color", action="store_true", help="Disable colored output.")
     compress.add_argument("--show-prompt", action="store_true", help="Print the compressed prompt to stdout.")
 
+    bench = sub.add_parser("bench", help="Run quality benchmarks and print a summary.")
+    bench.add_argument("--dataset", type=str, default=None, help="Path to a JSON dataset file (optional).")
+    bench.add_argument("--max-tokens", "-t", type=int, default=1200, help="Max context tokens (default 1200).")
+    bench.add_argument("--min-answer", type=float, default=85.0, help="Min answer survival rate (default 85).")
+    bench.add_argument("--require-entity", type=float, default=100.0, help="Required entity survival rate (default 100).")
+    bench.add_argument("--gate", action="store_true", help="Exit non-zero if thresholds are not met.")
+    bench.add_argument("--json", type=str, default=None, help="Write JSON report to this path.")
+
     return root
 
 
@@ -43,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "compress":
         return _cmd_compress(args)
+    if args.command == "bench":
+        return _cmd_bench(args)
 
     parser.print_help()
     return 1
@@ -89,6 +99,41 @@ def _cmd_compress(args: argparse.Namespace) -> int:
     if args.show_prompt:
         sys.stdout.write(final_prompt)
 
+    return 0
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    from .benchmarks import (
+        default_dataset,
+        format_summary,
+        load_dataset,
+        quality_gate,
+        run_benchmarks,
+    )
+    from .engine import ContextEngineConfig
+
+    cases = load_dataset(args.dataset) if args.dataset else default_dataset()
+    cfg = ContextEngineConfig(max_context_tokens=int(args.max_tokens), dev_mode=False)
+    result = run_benchmarks(cases, config=cfg)
+
+    sys.stdout.write(format_summary(result) + "\n")
+
+    if args.json:
+        Path(args.json).write_text(
+            __import__("json").dumps(result.__dict__, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    if args.gate:
+        ok, msg = quality_gate(
+            result,
+            min_answer_survival_rate=float(args.min_answer),
+            require_entity_survival_rate=float(args.require_entity),
+        )
+        if not ok:
+            sys.stderr.write(msg + "\n")
+            return 2
+        sys.stderr.write(msg + "\n")
     return 0
 
 

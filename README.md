@@ -120,6 +120,56 @@ pip install "contextbuddy[all]"         # Everything
 
 ---
 
+## 90-second quickstart (the only path you need)
+
+Compress a huge, noisy context into a budgeted prompt before the LLM call — in three lines.
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig
+
+engine = ContextEngine(ContextEngineConfig(dev_mode=True, max_context_tokens=4000))
+
+huge_context = """
+Invoice INV-92831 issued 2026-04-01 for account_id=acct_12345.
+Amount: $4,500.00 USD. Payment due within 30 days.
+
+... 20 pages of unrelated notes, meeting transcripts, old emails ...
+
+Ticket ACME-2041: chargebacks for user_id=usr_9z8y7x6w.
+"""
+
+final_prompt, report = engine.build_prompt(
+    user_prompt="Summarize the invoice and ticket. Include all IDs and dates.",
+    context=huge_context,
+)
+
+print(report.reduction_pct, "% smaller,  $", report.estimated_savings, "saved per call")
+# Pass `final_prompt` to any LLM (OpenAI, Anthropic, Gemini, local — ContextBuddy doesn't care).
+```
+
+When you're ready to call an LLM, use `engine.run(...)` (sync) or `engine.arun(...)` (async) and pass any `llm_call` callable. See [4 Ways to Use It](#4-ways-to-use-it-pick-your-level) for loaders, full RAG, and pipeline patterns.
+
+---
+
+## What ContextBuddy guarantees
+
+- **Entity survival.** Any regex-matched entity (IDs, emails, URLs, dates, money, tickets, phones, UUIDs, version strings) always survives compression.
+- **Never larger.** Output is always shorter than input — or unchanged if input already fits the budget.
+- **Never empty.** If input has content, output is non-empty. Empty output is treated as a bug, not a valid result.
+- **Deterministic core.** Same input + same config = same output. No randomness in the core pipeline.
+- **Zero core dependencies.** Works on a fresh Python 3.9+ install. `pip install contextbuddy` → done.
+- **Budget respected.** Final prompt always fits `max_context_tokens`. No mid-sentence cuts.
+
+## What ContextBuddy does not do
+
+- **Not an agent framework.** It compresses context; it doesn't orchestrate tools, memory, or loops. Pair with LangGraph/CrewAI if you need that.
+- **Not a vector database.** The in-memory store is great up to ~100k chunks. Above that, use Pinecone/Weaviate and plug ContextBuddy in as the compression layer.
+- **Doesn't call LLMs itself.** You always pass `llm_call=...`. Works with OpenAI, Anthropic, Gemini, Ollama, anything.
+- **Doesn't learn.** Scoring is algorithmic (BM25 + stemmer + synonyms + n-grams). No training, no drift.
+- **Doesn't ship a UI.** It's a library, not a product.
+
+---
+
 ## 4 Ways to Use It (pick your level)
 
 ### Path 1: Compress raw text (3 lines)

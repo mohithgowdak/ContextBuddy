@@ -5,7 +5,25 @@ from typing import Callable, Iterable, List, Optional, Protocol, Sequence, Tuple
 
 
 class Embedder(Protocol):
+    """Public embedder contract. Duck-typed — no inheritance required.
+
+    Any object with `embed(texts: Sequence[str]) -> List[List[float]]`
+    works. Raising `ImportError` in the adapter's `__init__` is the
+    canonical way to gate optional dependencies; see `OpenAIEmbedder`.
+    """
+
     def embed(self, texts: Sequence[str]) -> List[List[float]]: ...
+
+
+class AsyncEmbedder(Protocol):
+    """Optional async embedder contract.
+
+    Concrete adapters in this repo provide `aembed` by wrapping `embed`
+    with `asyncio.to_thread`. Network-backed embedders (e.g. OpenAI) may
+    override `aembed` with a native async implementation.
+    """
+
+    async def aembed(self, texts: Sequence[str]) -> List[List[float]]: ...
 
 
 class Tokenizer(Protocol):

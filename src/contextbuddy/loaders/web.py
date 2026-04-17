@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import List
 
+from ..chunking import SmartChunker
+
 
 _STRIP_TAGS = {"script", "style", "nav", "footer", "header", "aside", "noscript", "iframe"}
 
@@ -39,7 +41,4 @@ def load_url(url: str, *, timeout: float = 15.0) -> List[str]:
     # Prefer <article> or <main> content; fall back to <body>.
     main = soup.find("article") or soup.find("main") or soup.find("body") or soup
     text = main.get_text(separator="\n", strip=True)
-
-    import re
-    paragraphs = re.split(r"\n\s*\n+", text)
-    return [p.strip() for p in paragraphs if len(p.strip()) > 30]
+    return SmartChunker().chunk(text, doc_type="auto")

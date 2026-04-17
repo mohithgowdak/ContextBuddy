@@ -1,0 +1,9 @@
+{
+  "cases": 3,
+  "answer_survival_rate": 100.0,
+  "entity_survival_rate": 100.0,
+  "mean_prompt_reduction_pct": 0.0,
+  "mean_latency_ms": 2.618466668839877,
+  "p95_latency_ms": 3.1048999953782186,
+  "failures": []
+}

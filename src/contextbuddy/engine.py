@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Generator, Iterator, List, Optional, Sequence, Tuple, Union
 
 from .budget import BudgetEnforcer
-from .chunking import Chunker
+from .chunking import SmartChunker
 from .embedder import LocalHashEmbedder
 from .entities import EntityExtractor
 from .hybrid_scorer import HybridScorer
@@ -19,11 +19,15 @@ from .types import CostEstimate, Embedder, ModelPricing, Tokenizer
 class ContextEngineConfig:
     max_context_tokens: int = 4000
     min_relevance: float = 0.15
+    conservative_mode: bool = False
     dev_mode: bool = False
     rich_output: bool = True
     pricing: ModelPricing = field(default_factory=lambda: OPENAI_GPT4O_MINI)
     include_entities_section: bool = True
-    chunk_min_chars: int = 40
+    # Playbook defaults (applied by ContextEngine). Chunker defaults stay
+    # backwards-compatible for direct Chunker() use.
+    chunk_min_chars: int = 100
+    chunk_merge_under_chars: int = 200
 
 
 @dataclass
@@ -66,12 +70,20 @@ class ContextEngine:
         entity_extractor: Optional[EntityExtractor] = None,
         scorer: Optional[object] = None,
     ):
+        # Playbook: conservative mode keeps more chunks (lower risk of misses).
+        if config.conservative_mode and config.min_relevance > 0.05:
+            config = ContextEngineConfig(
+                **{**config.__dict__, "min_relevance": 0.05}  # type: ignore[arg-type]
+            )
         self.config = config
         self.embedder = embedder or LocalHashEmbedder()
         self.tokenizer = tokenizer or HeuristicTokenizer()
         self.entity_extractor = entity_extractor or EntityExtractor()
 
-        self._chunker = Chunker(min_chars=config.chunk_min_chars)
+        self._chunker = SmartChunker(
+            min_chars=config.chunk_min_chars,
+            merge_under_chars=config.chunk_merge_under_chars,
+        )
         if scorer is not None:
             self._scorer = scorer
         elif embedder is not None:
@@ -88,7 +100,11 @@ class ContextEngine:
         user_prompt: str,
         context: Union[str, Sequence[str]],
     ) -> Tuple[str, ContextReport]:
-        chunks = self._chunker.chunk(context)
+        if isinstance(context, str):
+            chunks = self._chunker.chunk(context, doc_type="auto")
+        else:
+            # Caller-provided chunk boundaries are respected.
+            chunks = list(context)
         total_chunks = len(chunks)
 
         # Original token estimate (context only)
@@ -126,8 +142,15 @@ class ContextEngine:
         top_text = "\n\n".join(chunks[i] for i in ranked[: min(8, len(ranked))])
         entities = self.entity_extractor.extract(user_prompt + "\n" + top_text)
 
-        # Keep list guardrail: any chunk containing an entity survives pruning
-        keep_by_entity = [_contains_any(ch, entities) for ch in chunks]
+        # Keep list guardrail: any chunk containing an entity survives pruning.
+        # Playbook: when a chunk is force-kept due to entity, also keep i-1 and i+1
+        # because entities need context.
+        entity_chunks = {i for i, ch in enumerate(chunks) if _contains_any(ch, entities)}
+        entity_context: set[int] = set()
+        for i in entity_chunks:
+            entity_context.add(max(0, i - 1))
+            entity_context.add(min(len(chunks) - 1, i + 1))
+        keep_by_entity = [i in (entity_chunks | entity_context) for i in range(len(chunks))]
         keep_mask = [a or b for a, b in zip(keep_by_score, keep_by_entity)]
 
         # If pruning kills everything, keep the top chunk.
@@ -136,11 +159,13 @@ class ContextEngine:
 
         pruned_chunks = [ch for ch, keep in zip(chunks, keep_mask) if keep]
         pruned_scores = [s for s, keep in zip(scores, keep_mask) if keep]
-        pruned_keep_mask = [keep for keep in keep_mask if keep]  # all True
+        # Keep mask aligned with pruned_* lists.
+        pruned_keep_mask = [kb for kb, keep in zip(keep_by_entity, keep_mask) if keep]
         pruned_indices = [i for i, keep in enumerate(keep_mask) if keep]
 
-        # Enforce token budget on pruned set (preserve entity chunks first)
-        entity_keep_mask = [_contains_any(ch, entities) for ch in pruned_chunks]
+        # Enforce token budget on pruned set.
+        # Preserve entity chunks *and their neighbor context* first (playbook rule).
+        entity_keep_mask = pruned_keep_mask
         selected_chunks, selected_local_indices = self._budget.enforce(
             chunks=pruned_chunks,
             scores=pruned_scores,
@@ -152,6 +177,17 @@ class ContextEngine:
         final_context = "\n\n".join(selected_chunks).strip()
         final_context_tokens = self._budget.count_tokens(final_context) if final_context else 0
 
+        # RED LINE: compressed context is never larger than the input context.
+        # Compression can only drop or summarize chunks — never add tokens.
+        # The full prompt may grow by the fixed `KeyEntities:` header when
+        # that opt-in feature is enabled; that's deliberate and documented.
+        if final_context_tokens > original_context_tokens:
+            raise RuntimeError(
+                "ContextBuddy compressed context is larger than input context "
+                f"({final_context_tokens} > {original_context_tokens} tokens). "
+                "This is a bug — please file an issue."
+            )
+
         # Compose final prompt
         parts: List[str] = []
         if self.config.include_entities_section and entities:
@@ -161,6 +197,13 @@ class ContextEngine:
         parts.append("User:\n" + user_prompt.strip())
         final_prompt = "\n\n".join(parts).strip() + "\n"
         final_prompt_tokens = self._budget.count_tokens(final_prompt) if final_prompt else 0
+
+        # RED LINE: empty output is a crash, not a valid result.
+        if original_prompt_tokens > 0 and not final_prompt.strip():
+            raise RuntimeError(
+                "ContextBuddy produced empty output for non-empty input. "
+                "This is a bug — please file an issue with the input that triggered it."
+            )
 
         reduction_pct = 0.0
         if original_prompt_tokens > 0:
