@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -31,6 +32,26 @@ class VectorMatch:
     id: str
     preview: str
     metadata: Dict[str, Any]
+
+
+def _path_has_preferred_segment(rel: str, needles: Sequence[str]) -> bool:
+    """True if any path segment (dir or file stem) exactly matches a needle (case-insensitive)."""
+    if not needles:
+        return False
+    parts = {p.lower() for p in re.split(r"[\\/]+", rel) if p}
+    for raw in needles:
+        n = (raw or "").strip().lower()
+        if n and n in parts:
+            return True
+    return False
+
+
+def _merge_exclude_dirs(exclude_dirs: Optional[Sequence[str]]) -> List[str]:
+    """Merge caller excludes with graph defaults (additive)."""
+    base = set(DEFAULT_GRAPH_EXCLUDE_DIRS)
+    if exclude_dirs:
+        base.update(str(x).strip() for x in exclude_dirs if str(x).strip())
+    return sorted(base)
 
 
 def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -127,7 +148,7 @@ class RepoVectorIndex:
     ) -> None:
         self.root = Path(root).resolve()
         self.index_dir = Path(index_dir).resolve()
-        self.exclude_dirs = list(exclude_dirs) if exclude_dirs is not None else sorted(DEFAULT_GRAPH_EXCLUDE_DIRS)
+        self.exclude_dirs = _merge_exclude_dirs(exclude_dirs)
         self.exts = list(exts) if exts is not None else sorted(DEFAULT_GRAPH_EXTS)
         self.embedder_id = (embedder_id or "localhash").strip().lower()
         self.embedder_config = dict(embedder_config or {})
@@ -326,7 +347,16 @@ class RepoVectorIndex:
             "updated_at": self._data["updated_at"],
         }
 
-    def search(self, query: str, *, top_k: int = 20, min_score: float = 0.0, max_preview_chars: int = 900) -> List[VectorMatch]:
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 20,
+        min_score: float = 0.0,
+        max_preview_chars: int = 900,
+        prefer_subpaths: Optional[Sequence[str]] = None,
+        prefer_subpath_boost: float = 1.15,
+    ) -> List[VectorMatch]:
         q = (query or "").strip()
         if not q:
             return []
@@ -336,28 +366,41 @@ class RepoVectorIndex:
             self.load()
         embedder = self._get_embedder()
 
+        needles = [x for x in (prefer_subpaths or []) if (x or "").strip()]
+        boost = float(prefer_subpath_boost) if needles else 1.0
+        if boost < 1.0:
+            boost = 1.0
+
         q_vec = embedder.embed([q])[0]
-        scored: List[Tuple[float, Dict[str, Any]]] = []
+        scored: List[Tuple[float, float, Dict[str, Any], bool]] = []
         for r in self._data.get("records", []):
             vec = r.get("vector") or []
             s = _cosine(q_vec, vec)
-            if s >= float(min_score):
-                scored.append((float(s), r))
+            if s < float(min_score):
+                continue
+            rel = str(r.get("path") or "")
+            boosted = bool(needles and _path_has_preferred_segment(rel, needles))
+            rank_s = float(s) * (boost if boosted else 1.0)
+            scored.append((rank_s, float(s), r, boosted))
         scored.sort(key=lambda kv: kv[0], reverse=True)
 
         out: List[VectorMatch] = []
-        for s, r in scored[: int(top_k)]:
+        for rank_s, cosine_s, r, boosted in scored[: int(top_k)]:
             txt = str(r.get("text") or "")
             prev = txt.strip()
             if len(prev) > int(max_preview_chars):
                 prev = prev[: int(max_preview_chars)].rstrip() + "\n..."
+            meta = dict(r.get("metadata") or {})
+            if needles:
+                meta["cosine_score"] = cosine_s
+                meta["prefer_subpath_boost"] = bool(boosted)
             out.append(
                 VectorMatch(
                     path=str((self.root / str(r.get("path") or "")).resolve()),
-                    score=float(s),
+                    score=float(rank_s),
                     id=str(r.get("id") or ""),
                     preview=prev,
-                    metadata=dict(r.get("metadata") or {}),
+                    metadata=meta,
                 )
             )
         return out

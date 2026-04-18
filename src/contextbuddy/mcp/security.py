@@ -6,13 +6,22 @@ from typing import Iterable, Optional, Sequence
 
 
 def _split_allowed_roots(s: str) -> list[str]:
-    # Windows commonly uses ';', posix uses ':'. Accept both.
-    raw = []
-    for part in s.replace(":", ";").split(";"):
-        part = (part or "").strip()
-        if part:
-            raw.append(part)
-    return raw
+    """
+    Parse a list of roots from env.
+
+    Windows paths contain ':' in the drive prefix (``C:\\``). Splitting on ':' breaks them,
+    so we only use ':' as a separator on non-Windows platforms. Windows uses ';' between paths.
+    """
+    s = (s or "").strip()
+    if not s:
+        return []
+    if ";" in s:
+        raw = [p.strip() for p in s.split(";")]
+    elif os.name != "nt" and ":" in s:
+        raw = [p.strip() for p in s.split(":")]
+    else:
+        raw = [s]
+    return [p for p in raw if p]
 
 
 def allowed_roots_from_env(env_var: str = "CONTEXTBUDDY_ALLOWED_ROOTS") -> list[Path]:
@@ -32,6 +41,30 @@ def allowed_roots_from_env(env_var: str = "CONTEXTBUDDY_ALLOWED_ROOTS") -> list[
     return roots
 
 
+def _is_dot_root(root: str | Path) -> bool:
+    s = str(root).strip().replace("\\", "/")
+    return s in (".", "./", "")
+
+
+def _resolve_root_path(root: str | Path, *, allowed: list[Path]) -> Path:
+    """
+    Resolve `root` for MCP tools.
+
+    If the client passes ``.`` and a single allowed root is configured (typical IDE setup),
+    use that path instead of the process cwd — stdio MCP hosts do not always set cwd to
+    the workspace, so ``Path('.').resolve()`` can point at the user profile (e.g. Windows).
+    """
+    if allowed and _is_dot_root(root):
+        if len(allowed) == 1:
+            return allowed[0].resolve()
+        if len(allowed) > 1:
+            raise PermissionError(
+                "root '.' is ambiguous when multiple CONTEXTBUDDY_ALLOWED_ROOTS entries are set; "
+                "pass an explicit directory path for root."
+            )
+    return Path(root).resolve()
+
+
 def validate_root(root: str | Path, *, allowed_roots: Optional[Sequence[Path]] = None) -> Path:
     """
     Resolve and validate a root directory for MCP.
@@ -39,11 +72,10 @@ def validate_root(root: str | Path, *, allowed_roots: Optional[Sequence[Path]] =
     - Ensures it exists and is a directory.
     - If an allowlist is provided (or configured via env), enforces containment.
     """
-    rp = Path(root).resolve()
+    allow = list(allowed_roots) if allowed_roots is not None else allowed_roots_from_env()
+    rp = _resolve_root_path(root, allowed=allow)
     if not rp.exists() or not rp.is_dir():
         raise FileNotFoundError(f"Root not found or not a directory: {rp}")
-
-    allow = list(allowed_roots) if allowed_roots is not None else allowed_roots_from_env()
     if allow:
         ok = any(_is_under(rp, a) for a in allow)
         if not ok:

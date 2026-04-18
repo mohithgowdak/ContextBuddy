@@ -15,11 +15,23 @@ DEFAULT_GRAPH_EXCLUDE_DIRS: Set[str] = {
     ".hg",
     ".svn",
     ".venv",
+    ".venv-smoke",
+    ".cursor",
     "__pycache__",
     "node_modules",
     "dist",
     "build",
     ".pytest_cache",
+    # JS/TS framework build output (avoid indexing .next/server.js chunks as "source")
+    ".next",
+    "out",
+    ".nuxt",
+    ".output",
+    ".turbo",
+    ".vercel",
+    ".svelte-kit",
+    "coverage",
+    ".cache",
 }
 
 DEFAULT_GRAPH_EXTS: Set[str] = {".py", ".md", ".txt", ".toml", ".yaml", ".yml", ".json", ".ts", ".tsx", ".js", ".jsx"}
