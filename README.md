@@ -242,7 +242,7 @@ python -m pip install -e .
 python -m contextbuddy bench --gate --json bench-report.json
 ```
 
-See `docs/benchmarks.md` and `benchmarks/datasets/v0.sample.json`.
+See `docs/benchmarks/benchmarks.md` and `benchmarks/datasets/v0.sample.json`.
 
 ---
 

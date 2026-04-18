@@ -49,7 +49,7 @@ load() → Store → Retriever → Compressor (ContextEngine) → (optional Rout
 - **`contextbuddy/embedder.py` / `contextbuddy/types.py`**
   - `Embedder` / `AsyncEmbedder` protocols (duck-typed)
   - `LocalHashEmbedder` (zero-dep, deterministic)
-  - Optional `OpenAIEmbedder` behind install guard
+  - Optional embedders behind install guards
 
 - **`contextbuddy/benchmarks.py`**
   - Benchmark harness + quality gate (`contextbuddy bench --gate`)
@@ -74,17 +74,9 @@ Extras are opt-in and guarded with explicit errors:
 - Web: `pip install "contextbuddy[web]"`
 - DOCX: `pip install "contextbuddy[docx]"`
 - OpenAI: `pip install "contextbuddy[openai]"`
-
-## Failure modes + mitigations (what can go wrong)
-
-- **Recall misses in relevance scoring**
-  - Mitigation: conservative mode + entity keep-list + benchmark gate.
-
-- **Long documents / latency spikes**
-  - Mitigation: chunk coherence rules, budgeting, and (future) caching; measure p95 via `bench`.
-
-- **PDF extraction artifacts**
-  - Mitigation: PDF normalization + SmartChunker (avoid page-wise chunks).
+- Ollama: `pip install "contextbuddy[ollama]"`
+- SBERT: `pip install "contextbuddy[sbert]"`
+- Gemini: `pip install "contextbuddy[gemini]"`
 
 ## Quality gate (how we prevent regressions)
 
@@ -93,11 +85,5 @@ Run:
 python -m contextbuddy bench --gate --json bench-report.json
 ```
 
-This produces:
-- answer survival rate (proxy)
-- entity survival rate (hard requirement)
-- mean reduction %
-- latency mean + p95
-
-See `docs/benchmarks.md`.
+See `docs/benchmarks/benchmarks.md`.
 
