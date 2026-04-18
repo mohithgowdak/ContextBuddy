@@ -20,6 +20,7 @@ Start here.
 - **Caching**: `docs/reference/cache.md`
 - **Agent tools**: `docs/reference/tools.md`
 - **CLI**: `docs/reference/cli.md`
+- **MCP server**: `docs/reference/mcp.md`
 - **Architecture**: `docs/reference/architecture.md`
 - **FAQ**: `docs/reference/FAQ.md`
 

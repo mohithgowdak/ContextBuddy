@@ -49,3 +49,11 @@ answer = pipeline.query("Summarize the contract", llm_call=my_llm)
 - Need more shrink? lower `max_context_tokens` and/or raise `min_relevance`.
 - Need true semantics? use the Embedding Levels section in `README.md`.
 
+## 6) IDE / repo knowledge (MCP)
+
+If your main use case is “ask my codebase”, use the MCP server to:
+
+**search → assemble context → compress**
+
+See `docs/reference/mcp.md` for the tool list and parameters.
+
