@@ -11,6 +11,10 @@ ContextBuddy ships an optional MCP server so MCP-capable clients can:
 pip install "contextbuddy[mcp]"
 ```
 
+## Commands (one page)
+
+See `docs/commands.md` for a one-page table of CLI commands + MCP tools.
+
 ## First-time setup (recommended)
 
 ContextBuddy’s MCP server works best when you do two things once:

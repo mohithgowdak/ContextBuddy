@@ -5,6 +5,7 @@ Start here.
 ## User guide
 
 - **User guide (end-to-end)**: `docs/user-guide/user-guide.md`
+- **Commands (one page)**: `docs/commands.md`
 
 ## Reference (module docs)
 
