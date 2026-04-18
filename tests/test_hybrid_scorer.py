@@ -53,6 +53,43 @@ class TestHybridScorer:
         scores = scorer.score(query="How to optimize database queries?", chunks=chunks)
         assert scores[0] > scores[1]
 
+    def test_numeric_results_bonus(self, scorer):
+        """Queries asking for numbers should prefer numeric-heavy chunks."""
+        chunks = [
+            "Abstract: This paper proposes a method and discusses results qualitatively.",
+            "Results: Accuracy 92.4% on Dataset-A, F1 0.81, AUC 0.93, FPS 120.",
+            "Conclusion: We discuss future work and limitations.",
+        ]
+        scores = scorer.score(query="Give me the numerical results and accuracy metrics", chunks=chunks)
+        assert scores[1] == max(scores)
+
+    def test_method_procedure_bonus(self, scorer):
+        """Queries asking for procedure/method should prefer methodology chunks."""
+        chunks = [
+            "Abstract: this paper proposes a method and gives an overview.",
+            "IV. PROPOSED METHODOLOGY The procedure is as follows: Step 1 preprocess. Step 2 extract TV-L1.",
+            "RESULTS: Accuracy 92.4% on Dataset-A.",
+        ]
+        scores = scorer.score(query="explain the procedure of the working method", chunks=chunks)
+        assert scores[1] == max(scores)
+
+    def test_proposed_methodology_beats_related_work(self, scorer):
+        chunks = [
+            "II. RELATED WORKS This methodology is beneficial in prior studies but does not describe our steps.",
+            "IV. PROPOSED METHODOLOGY The proposed methodology reflects a complete pipeline. Step 1 preprocess.",
+        ]
+        scores = scorer.score(query="explain the procedure of the working method", chunks=chunks)
+        assert scores[1] > scores[0]
+
+    def test_related_work_intent_prefers_related_work_section(self, scorer):
+        chunks = [
+            "RESULTS: Accuracy 92.4% and MCC 0.8082. Fig.4 shows UF1 vs heads.",
+            "II. RELATED WORKS Hashmi et al. [4] introduce LARNet. Li et al. [5] use attention mechanisms.",
+            "IV. PROPOSED METHODOLOGY Step 1 preprocess. Step 2 compute optical flow.",
+        ]
+        scores = scorer.score(query="find me relevant previous works", chunks=chunks)
+        assert scores[1] == max(scores)
+
     def test_idf_weighting(self, scorer):
         """Rare terms should matter more than common terms."""
         chunks = [

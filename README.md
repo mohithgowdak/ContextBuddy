@@ -124,11 +124,83 @@ pip install "contextbuddy[pdf]"         # PDF loading (pymupdf)
 pip install "contextbuddy[web]"         # URL/web scraping (httpx + bs4)
 pip install "contextbuddy[tiktoken]"    # Accurate OpenAI token counts
 pip install "contextbuddy[openai]"      # OpenAI embeddings
+pip install "contextbuddy[ollama]"      # Free local semantic embeddings (requires Ollama)
+pip install "contextbuddy[sbert]"       # Free local semantic embeddings (sentence-transformers)
 pip install "contextbuddy[loaders]"     # All document loaders
 pip install "contextbuddy[all]"         # Everything
 ```
 
 ---
+
+## Embedding Levels (what to use)
+
+ContextBuddy is **compression-first**. Embeddings are optional — you only upgrade when you need more semantic accuracy.
+
+| Level | What you get | Cost | Dependencies | When to use |
+|---|---|---:|---|---|
+| **Level 0 (default)** | Hash/BM25-style relevance (fast, decent) | **$0** | **None (core)** | Most business/technical docs with shared vocabulary |
+| **Level 1 (free semantic, local)** | True semantic similarity (offline) | **$0** | **Optional** | Synonyms/paraphrases matter; you want better recall without paying APIs |
+| **Level 2 (paid semantic)** | Best-in-class embeddings | $$ | **Optional** | Multilingual / high-stakes accuracy / heavy paraphrasing |
+
+### Level 0 (default): zero-dependency
+
+- Works out of the box, no setup.
+- Best when the question and answer share some vocabulary.
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig
+
+engine = ContextEngine(ContextEngineConfig(max_context_tokens=4000))
+```
+
+### Level 1 (free semantic): local embeddings (recommended upgrade)
+
+Pick one:
+
+- **Ollama** (best DX, keeps your Python deps light): `pip install "contextbuddy[ollama]"`  
+  Requires [Ollama](https://ollama.com/) installed and a local embedding model pulled.
+- **Sentence Transformers** (in-process, heavier install): `pip install "contextbuddy[sbert]"`
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig, OllamaEmbedder
+
+engine = ContextEngine(
+    ContextEngineConfig(max_context_tokens=4000),
+    embedder=OllamaEmbedder(model="nomic-embed-text"),  # local + free
+)
+```
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig, SentenceTransformersEmbedder
+
+engine = ContextEngine(
+    ContextEngineConfig(max_context_tokens=4000),
+    embedder=SentenceTransformersEmbedder(model="sentence-transformers/all-MiniLM-L6-v2"),
+)
+```
+
+### Level 2 (paid semantic): OpenAI / Gemini
+
+- Use when you want the highest semantic accuracy and you’re okay with external API calls.
+- Install: `pip install "contextbuddy[openai]"` (and similarly for Gemini when you enable it).
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig, OpenAIEmbedder
+
+engine = ContextEngine(
+    ContextEngineConfig(max_context_tokens=4000),
+    embedder=OpenAIEmbedder(model="text-embedding-3-small"),
+)
+```
+
+```python
+from contextbuddy import ContextEngine, ContextEngineConfig, GeminiEmbedder
+
+engine = ContextEngine(
+    ContextEngineConfig(max_context_tokens=4000),
+    embedder=GeminiEmbedder(model="text-embedding-004"),
+)
+```
 
 ## 90-second quickstart (the only path you need)
 

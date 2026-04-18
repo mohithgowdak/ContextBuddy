@@ -33,8 +33,8 @@ _PATTERNS: Dict[str, Pattern[str]] = {
 
 _id_re = re.compile(
     r"\b(?:id|uid|user_id|account_id|order_id|invoice_id|customer_id|"
-    r"session_id|transaction_id|ref|reference|sku|arn)"
-    r"\s*[:=#]?\s*([A-Za-z0-9_-]{4,})\b",
+    r"session_id|transaction_id|ref|reference|sku|arn)\b"
+    r"(?:\s*[:=#]\s*|\s+)([A-Za-z0-9_-]{4,})\b",
     re.IGNORECASE,
 )
 

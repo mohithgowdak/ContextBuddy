@@ -74,6 +74,30 @@ def _contains_any(text: str, needles: Sequence[str]) -> bool:
     return False
 
 
+def _is_keep_worthy_context_entity(e: str) -> bool:
+    """
+    Context-derived entities are a safety net, but some are noisy in real PDFs:
+    - header emails
+    - DOI/URL fragments
+    - random decimals that look like versions
+
+    This filter keeps the playbook guarantee for IDs/dates/etc. while avoiding
+    common hijacks.
+    """
+    s = (e or "").strip()
+    if not s:
+        return False
+    low = s.lower()
+    if "@" in s:
+        return False
+    if low.startswith("http://") or low.startswith("https://"):
+        return False
+    # Drop bare decimals like "2016.2573832" (common in DOIs/citations).
+    if s.replace(".", "", 1).isdigit() and "." in s:
+        return False
+    return True
+
+
 class ContextEngine:
     def __init__(
         self,
@@ -151,15 +175,34 @@ class ContextEngine:
         # Initial pruning by relevance threshold
         keep_by_score = [s >= self.config.min_relevance for s in scores]
 
-        # Entities from prompt + top chunks (by score)
+        # Entities:
+        # - Prompt entities are *force-preserved* (user intent).
+        # - Context entities are *reported* (telemetry), but must not hijack relevance.
         ranked = sorted(range(len(chunks)), key=lambda i: float(scores[i]), reverse=True)
         top_text = "\n\n".join(chunks[i] for i in ranked[: min(8, len(ranked))])
-        entities = self.entity_extractor.extract(user_prompt + "\n" + top_text)
+        prompt_entities = self.entity_extractor.extract(user_prompt)
+        context_entities = self.entity_extractor.extract(top_text)
+        # Preserve order, de-dupe.
+        seen_e: set[str] = set()
+        entities: List[str] = []
+        for e in [*prompt_entities, *context_entities]:
+            if e and e not in seen_e:
+                seen_e.add(e)
+                entities.append(e)
 
-        # Keep list guardrail: any chunk containing an entity survives pruning.
+        # Avoid noisy context entities in the KeyEntities section.
+        entities = [e for e in entities if (e in prompt_entities) or _is_keep_worthy_context_entity(e)]
+
+        # Keep list guardrail: any chunk containing a *prompt entity* survives pruning.
         # Playbook: when a chunk is force-kept due to entity, also keep i-1 and i+1
         # because entities need context.
-        entity_chunks = {i for i, ch in enumerate(chunks) if _contains_any(ch, entities)}
+        # Entity keep-list:
+        # - Prompt entities are always force-preserved (user intent).
+        # - Context entities are a safety net, but filtered to avoid header noise (emails/URLs/decimals).
+        keep_entities = list(prompt_entities)
+        keep_entities.extend([e for e in context_entities if _is_keep_worthy_context_entity(e)])
+
+        entity_chunks = {i for i, ch in enumerate(chunks) if _contains_any(ch, keep_entities)} if keep_entities else set()
         entity_context: set[int] = set()
         for i in entity_chunks:
             entity_context.add(max(0, i - 1))

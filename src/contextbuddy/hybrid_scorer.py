@@ -24,6 +24,17 @@ from .stemmer import stem, tokenize_and_stem
 from .synonyms import expand_synonyms, expand_query_terms
 
 _word_re = re.compile(r"[a-z0-9]+")
+_number_re = re.compile(r"\b\d+(?:\.\d+)?%?\b")
+_method_heading_re = re.compile(
+    r"\b(?:proposed methodology|methodology|approach|framework|workflow|pipeline|architecture|algorithm)\b",
+    re.IGNORECASE,
+)
+_step_re = re.compile(r"\b(?:step\s*\d+|procedure|process|working|stages?)\b", re.IGNORECASE)
+_proposed_method_re = re.compile(r"\b(?:iv\.\s*)?proposed\s+methodology\b", re.IGNORECASE)
+_abstract_like_re = re.compile(r"\b(?:abstract|index terms|related works?)\b", re.IGNORECASE)
+_related_work_heading_re = re.compile(r"\b(?:related works?|prior works?|previous works?|literature review)\b", re.IGNORECASE)
+_citation_re = re.compile(r"\[[0-9]{1,3}\]|\bet al\.\b|\bdoi\b", re.IGNORECASE)
+_results_like_re = re.compile(r"\b(?:results?|evaluation|metrics?|accuracy|uf1|uar|mcc|ece)\b", re.IGNORECASE)
 
 # ── Stop words (small, high-frequency words that add noise to BM25) ──
 _STOP_WORDS: FrozenSet[str] = frozenset({
@@ -112,10 +123,15 @@ class HybridScorer:
     bm25_weight: float = 0.70
     ngram_weight: float = 0.15
     synonym_weight: float = 0.15
+    numeric_weight: float = 0.20
+    method_weight: float = 0.35
+    related_work_weight: float = 0.35
     k1: float = 1.5
     b: float = 0.75
     ngram_n: int = 3
     ngram_threshold: float = 0.35
+    numeric_threshold: float = 0.02
+    method_threshold: float = 0.0
 
     def score(self, *, query: str, chunks: Sequence[str]) -> List[float]:
         if not chunks:
@@ -123,6 +139,97 @@ class HybridScorer:
 
         query_raw = _remove_stops(_tokenize_raw(query))
         query_stemmed = _remove_stops(tokenize_and_stem(query))
+        query_l = query.lower()
+        wants_numbers = any(
+            k in query_l
+            for k in (
+                "numerical",
+                "number",
+                "numbers",
+                "results",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+                "auc",
+                "score",
+                "scores",
+                "metric",
+                "metrics",
+                "%",
+            )
+        )
+        wants_method = any(
+            k in query_l
+            for k in (
+                "procedure",
+                "working",
+                "method",
+                "methodology",
+                "approach",
+                "how",
+                "pipeline",
+                "architecture",
+                "workflow",
+                "algorithm",
+                "steps",
+                "process",
+            )
+        )
+        wants_related_work = any(
+            k in query_l
+            for k in (
+                "related work",
+                "related works",
+                "previous work",
+                "previous works",
+                "prior work",
+                "prior works",
+                "literature",
+                "literature review",
+                "baseline",
+                "state of the art",
+                "sota",
+            )
+        )
+
+        # Intent-aware query expansion: for procedural questions, we add a small
+        # set of method-centric terms so BM25 prefers true methodology sections
+        # over generic background/related work.
+        if wants_method:
+            extra = [
+                "proposed",
+                "methodology",
+                "pipeline",
+                "architecture",
+                "workflow",
+                "procedure",
+                "process",
+                "steps",
+                "preprocess",
+                "implementation",
+                "algorithm",
+                "framework",
+            ]
+            query_stemmed = list(dict.fromkeys([*query_stemmed, *[stem(t) for t in extra]]))
+
+        if wants_related_work:
+            extra = [
+                "related",
+                "work",
+                "works",
+                "prior",
+                "previous",
+                "literature",
+                "baseline",
+                "survey",
+                "review",
+                "et",
+                "al",
+                "proposed",
+                "introduced",
+            ]
+            query_stemmed = list(dict.fromkeys([*query_stemmed, *[stem(t) for t in extra]]))
 
         # Synonym expansion on raw (unstemmed) query terms
         query_expanded: Set[str] = set(query_raw)
@@ -169,6 +276,9 @@ class HybridScorer:
         bm25_scores: List[float] = []
         ngram_scores: List[float] = []
         synonym_scores: List[float] = []
+        numeric_scores: List[float] = []
+        method_scores: List[float] = []
+        related_scores: List[float] = []
 
         for i, ch in enumerate(chunks):
             tf = chunk_tfs[i]
@@ -186,6 +296,10 @@ class HybridScorer:
                     k1=self.k1,
                     b=self.b,
                 )
+            if wants_method and _abstract_like_re.search(ch):
+                bm25 *= 0.70
+            if wants_related_work and _results_like_re.search(ch):
+                bm25 *= 0.75
             bm25_scores.append(bm25)
 
             # --- Synonym match bonus ---
@@ -216,6 +330,43 @@ class HybridScorer:
             ngram_score = ngram_total / max(len(query_raw), 1)
             ngram_scores.append(ngram_score)
 
+            # --- Numeric density bonus (only when query asks for numbers) ---
+            if wants_numbers:
+                # Count numeric tokens (integers, decimals, optional %)
+                nums = _number_re.findall(ch)
+                toks = chunk_tokens_raw[i]
+                density = (len(nums) / max(len(toks), 1)) if toks else 0.0
+                # Convert density into a bounded score; ignore tiny accidental numbers.
+                numeric_scores.append(density if density >= self.numeric_threshold else 0.0)
+            else:
+                numeric_scores.append(0.0)
+
+            # --- Method/procedure bonus (only when query asks for method/process) ---
+            if wants_method:
+                # Score based on presence of headings and step/procedure cues.
+                heading = 1.0 if _method_heading_re.search(ch) else 0.0
+                proposed = 1.0 if _proposed_method_re.search(ch) else 0.0
+                steps = 1.0 if _step_re.search(ch) else 0.0
+                fig = 1.0 if ("fig." in ch.lower() or "architecture diagram" in ch.lower()) else 0.0
+                base = max(heading, steps * 0.7, fig * 0.6)
+                bonus = 0.70 * proposed
+                penalty = 0.50 if _abstract_like_re.search(ch) else 0.0
+                method_scores.append(max(0.0, base + bonus - penalty))
+            else:
+                method_scores.append(0.0)
+
+            # --- Related work / previous work bonus ---
+            if wants_related_work:
+                heading = 1.0 if _related_work_heading_re.search(ch) else 0.0
+                # Citation density: more citations => more likely related works.
+                cites = len(_citation_re.findall(ch))
+                toks = chunk_tokens_raw[i]
+                cite_density = (cites / max(len(toks), 1)) if toks else 0.0
+                # Soft score: heading dominates; citations help.
+                related_scores.append(min(1.0, heading + min(0.6, cite_density * 10.0)))
+            else:
+                related_scores.append(0.0)
+
         # ── Normalize each signal to [0, 1] ──
         bm25_max = max(bm25_scores) if bm25_scores else 1.0
         if bm25_max <= 0:
@@ -232,6 +383,21 @@ class HybridScorer:
             syn_max = 1.0
         syn_norm = [s / syn_max for s in synonym_scores]
 
+        num_max = max(numeric_scores) if numeric_scores else 1.0
+        if num_max <= 0:
+            num_max = 1.0
+        num_norm = [s / num_max for s in numeric_scores]
+
+        meth_max = max(method_scores) if method_scores else 1.0
+        if meth_max <= 0:
+            meth_max = 1.0
+        meth_norm = [s / meth_max for s in method_scores]
+
+        rel_max = max(related_scores) if related_scores else 1.0
+        if rel_max <= 0:
+            rel_max = 1.0
+        rel_norm = [s / rel_max for s in related_scores]
+
         # ── Weighted combination ──
         combined = [
             self.bm25_weight * bm25_norm[i]
@@ -239,5 +405,23 @@ class HybridScorer:
             + self.synonym_weight * syn_norm[i]
             for i in range(n_docs)
         ]
+
+        if wants_numbers and self.numeric_weight > 0:
+            combined = [
+                min(1.0, max(0.0, combined[i] + (self.numeric_weight * num_norm[i])))
+                for i in range(n_docs)
+            ]
+
+        if wants_method and self.method_weight > 0:
+            combined = [
+                min(1.0, max(0.0, combined[i] + (self.method_weight * meth_norm[i])))
+                for i in range(n_docs)
+            ]
+
+        if wants_related_work and self.related_work_weight > 0:
+            combined = [
+                min(1.0, max(0.0, combined[i] + (self.related_work_weight * rel_norm[i])))
+                for i in range(n_docs)
+            ]
 
         return combined

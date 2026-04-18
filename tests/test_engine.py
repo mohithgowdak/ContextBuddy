@@ -52,11 +52,35 @@ def test_entity_keep_list_prevents_drop() -> None:
         ("This looks irrelevant but contains invoice_id=INV-92831. " * 5),
         ("alpha alpha alpha " * 10),
     ]
-    final_prompt, report = engine.build_prompt(user_prompt="alpha question", context=context)
+    # The entity keep-list is driven by entities in the *user prompt*.
+    final_prompt, report = engine.build_prompt(user_prompt="alpha question about INV-92831", context=context)
 
     assert "INV-92831" in final_prompt
     assert "KeyEntities:" in final_prompt
     assert any("INV-92831" == e for e in report.entities)
+
+
+def test_context_entities_do_not_hijack_prompt_entity_keep_list() -> None:
+    """
+    Entities found in top chunks (e.g. header emails) should be reported,
+    but should not force-keep irrelevant chunks unless the user prompt
+    contains that entity.
+    """
+    engine = ContextEngine(
+        ContextEngineConfig(max_context_tokens=500, min_relevance=0.20),
+    )
+    context = (
+        "Title page header. Contact: savithan@jssstuniv.in\n\n"
+        "Abstract: this is general background.\n\n"
+        "METHOD: The procedure is as follows: Step 1 preprocess. Step 2 compute TV-L1. Step 3 HTNet.\n\n"
+        "RESULTS: Accuracy 92.4% and MCC 0.8082.\n"
+    )
+    final_prompt, report = engine.build_prompt(
+        user_prompt="explain the procedure of the working method",
+        context=context,
+    )
+    assert "savithan@jssstuniv.in" not in report.entities
+    assert "procedure is as follows" in final_prompt.lower()
 
 
 def test_budgeting_enforces_max_context_tokens() -> None:
