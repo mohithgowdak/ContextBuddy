@@ -124,22 +124,27 @@ class OllamaEmbedder:
         timeout: float = 30.0,
         client=None,
     ):
-        try:
-            import httpx  # type: ignore
-        except ImportError as e:
-            raise ImportError(
-                "OllamaEmbedder requires 'httpx'. Install with: pip install \"contextbuddy[ollama]\""
-            ) from e
-
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._httpx = httpx
         self._client = client  # optional injected client (sync or async)
+        self._httpx = None
+
+        # Only require httpx when we need to construct a real HTTP client.
+        # If the caller injects a client (e.g. for tests), we can operate without httpx.
+        if self._client is None:
+            try:
+                import httpx  # type: ignore
+            except ImportError as e:
+                raise ImportError(
+                    "OllamaEmbedder requires 'httpx'. Install with: pip install \"contextbuddy[ollama]\""
+                ) from e
+            self._httpx = httpx
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         # Sync client
         if self._client is None:
+            # _httpx is guaranteed when _client is None (see __init__)
             with self._httpx.Client(base_url=self._base_url, timeout=self._timeout) as c:
                 return self._embed_with_sync_client(c, texts)
         return self._embed_with_sync_client(self._client, texts)
@@ -159,6 +164,7 @@ class OllamaEmbedder:
     async def aembed(self, texts: Sequence[str]) -> List[List[float]]:
         # If caller injected an AsyncClient, use it; otherwise use httpx.AsyncClient.
         if self._client is None:
+            # _httpx is guaranteed when _client is None (see __init__)
             async with self._httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as c:
                 return await self._embed_with_async_client(c, texts)
 
