@@ -37,7 +37,7 @@
 > **One line. 60% cheaper. Zero core dependencies.**
 > ContextBuddy sits between your raw data and your LLM call, strips the noise, keeps every entity, and shows you the savings -- in tokens and dollars -- on every single request.
 
-> **Disclaimer:** This is a personal open-source project by Mohith, developed as an individual contributor. It is **not an official SAP product**, not endorsed by SAP, and not recommended or supported by SAP in any capacity. This represents the author's personal ideas and work.
+>
 
 ```
 ┌──────────────────────────────────────────────────────┐
