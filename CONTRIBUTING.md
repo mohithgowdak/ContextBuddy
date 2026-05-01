@@ -5,7 +5,7 @@ Thanks for helping improve ContextBuddy.
 ## Development setup
 
 ```bash
-git clone https://github.com/mohithgowdak/ContextBuddy.git
+git clone [this repo]
 cd ContextBuddy
 
 python -m venv .venv

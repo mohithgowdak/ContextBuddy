@@ -9,6 +9,7 @@ from .loaders import load
 from .router import Router, RouteRule, score_complexity
 from .cache import EmbeddingCache, ResponseCache, CachedEmbedder
 from .hybrid_scorer import HybridScorer
+from .langchain import ContextBuddyCompressor, ContextBuddyRetriever
 from .scoring import SemanticScorer
 from .stemmer import stem, tokenize_and_stem
 from .embedder import LocalHashEmbedder, OpenAIEmbedder, OllamaEmbedder, SentenceTransformersEmbedder, GeminiEmbedder
@@ -56,6 +57,9 @@ __all__ = [
     "EmbeddingCache",
     "ResponseCache",
     "CachedEmbedder",
+    # LangChain integration
+    "ContextBuddyCompressor",
+    "ContextBuddyRetriever",
     # Wrappers
     "wrap_openai",
     "WrappedClient",

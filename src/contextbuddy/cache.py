@@ -161,11 +161,15 @@ class CachedEmbedder:
 
         if miss_texts:
             new_vecs = self._embedder.embed(miss_texts)
+            if len(new_vecs) != len(miss_texts):
+                raise RuntimeError(
+                    f"Embedder returned {len(new_vecs)} vectors for {len(miss_texts)} texts"
+                )
             self._cache.put_many(miss_texts, new_vecs)
             for i, vec in zip(miss_indices, new_vecs):
                 results[i] = vec
 
-        return results  # type: ignore[return-value]
+        return [r for r in results if r is not None]
 
     async def aembed(self, texts: Sequence[str]) -> List[List[float]]:
         results: List[Optional[List[float]]] = self._cache.get_many(texts)
@@ -183,11 +187,15 @@ class CachedEmbedder:
                 new_vecs = await aembed_fn(miss_texts)
             else:
                 new_vecs = await asyncio.to_thread(self._embedder.embed, miss_texts)
+            if len(new_vecs) != len(miss_texts):
+                raise RuntimeError(
+                    f"Embedder returned {len(new_vecs)} vectors for {len(miss_texts)} texts"
+                )
             self._cache.put_many(miss_texts, new_vecs)
             for i, vec in zip(miss_indices, new_vecs):
                 results[i] = vec
 
-        return results  # type: ignore[return-value]
+        return [r for r in results if r is not None]
 
     @property
     def stats(self) -> CacheStats:

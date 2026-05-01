@@ -8,8 +8,6 @@ This page lists the most common “what do I run?” commands (CLI) and “what 
 | **CLI** | `python -m contextbuddy compress --prompt "..." --context "..." --show-prompt` | Compress inline context into a budgeted prompt (demo/smoke). |
 | **CLI** | `python -m contextbuddy bench --gate --json bench-report.json` | Run quality gate benchmarks (ship confidence). |
 | **MCP** | `contextbuddy-mcp` | Start the MCP server (stdio). |
-| **MCP tool** | `about` | Version, tool list, and policy limits (no user data). |
-| **MCP tool** | `validate_config` | Optional checks: allowed roots hint, embedder import, limits. |
 | **MCP tool** | `compress` | Compress raw context into a budgeted prompt (no retrieval). |
 | **MCP tool** | `search_kb` | Scan-search a local repo/KB and return line previews. |
 | **MCP tool** | `search_and_compress` | Scan-search → assemble context → compress. |

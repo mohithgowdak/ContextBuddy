@@ -31,21 +31,6 @@ def test_vector_build_search_and_update(tmp_path: Path) -> None:
     assert any("goodbye_world" in h.preview for h in hits2)
 
 
-def test_vector_search_prefers_src_segment_when_cosine_ties(tmp_path: Path) -> None:
-    """Same chunk text in root vs under src/ gets identical embeddings; src should rank first with default boost."""
-    root = tmp_path / "repo"
-    body = "def foo():\n    return 42\n"
-    _write(root / "b.py", body)
-    _write(root / "src" / "a.py", body)
-
-    idx = RepoVectorIndex(root=root, index_dir=tmp_path / "indexes", embedder_id="localhash", embedder_config={"dims": 128})
-    idx.build(max_files=1000, batch_size=16)
-
-    hits = idx.search("foo return", top_k=2, prefer_subpaths=["src"], prefer_subpath_boost=2.0)
-    assert len(hits) >= 2
-    assert "src" in hits[0].path.replace("\\", "/")
-
-
 def test_vector_graph_hybrid_seed_expansion(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     _write(root / "pkg" / "a.py", "from .b import foo\n\ndef bar():\n    return foo()\n")

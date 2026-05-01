@@ -12,17 +12,32 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/mohithgowdak/ContextBuddy" alt="License"></a>
   <img src="https://img.shields.io/badge/dependencies-0_(core)-brightgreen" alt="Deps">
 </p>
-
+<!-->
 <p align="center">
   <a href="docs/demo.md">Create the demo GIF</a> •
   Drop it at <code>assets/cli-demo.gif</code>
 </p>
-
+-->
 <!-- Once recorded, uncomment this:
 <p align="center">
   <img src="assets/cli-demo.gif" alt="ContextBuddy CLI demo" width="820" />
 </p>
 -->
+
+```
+   ______            __            __  ____            __    __
+  / ____/___  ____  / /____  _  __/ /_/ __ )__  ______/ /___/ /_  __
+ / /   / __ \/ __ \/ __/ _ \| |/_/ __/ __  / / / / __  / __  / / / /
+/ /___/ /_/ / / / / /_/  __/>  </ /_/ /_/ / /_/ / /_/ / /_/ / /_/ /
+\____/\____/_/ /_/\__/\___/_/|_|\__/_____/\__,_/\__,_/\__,_/\__, /
+                                                            /____/
+        The missing compression layer for every LLM stack.
+```
+
+> **One line. 60% cheaper. Zero core dependencies.**
+> ContextBuddy sits between your raw data and your LLM call, strips the noise, keeps every entity, and shows you the savings -- in tokens and dollars -- on every single request.
+
+> **Disclaimer:** This is a personal open-source project by Mohith, developed as an individual contributor. It is **not an official SAP product**, not endorsed by SAP, and not recommended or supported by SAP in any capacity. This represents the author's personal ideas and work.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -91,6 +106,7 @@ Specifically built for:
 - **Solo developers** who want multi-doc RAG without installing LangChain and 100 transitive dependencies.
 - **Platform teams** who need cost visibility and governance over LLM spend across the organization.
 - **Agent builders** who need their tools to pass compressed, high-signal context to function calls.
+- **LangChain users** who want to drop in a compression layer without rewriting a single retriever -- just install the `[langchain]` extra.
 - **Anyone already using LangChain/LlamaIndex** who wants to cut costs without rewriting -- just drop ContextBuddy into your existing pipeline as a compression step.
 
 ---
@@ -98,7 +114,7 @@ Specifically built for:
 ## Why ContextBuddy over the alternatives?
 
 | Feature | LangChain | LlamaIndex | LightRAG | **ContextBuddy** |
-|---------|-----------|------------|----------|-|
+|---------|-----------|------------|----------|------------------|
 | Install size | 100+ deps | 50+ deps | 20+ deps | **0 core deps** |
 | Lines to first RAG | ~30 | ~15 | ~10 | **3** |
 | Cost optimization | None | None | None | **Built-in** |
@@ -106,8 +122,9 @@ Specifically built for:
 | Vector DB required | Yes | Yes | Yes | **No** |
 | Context compression | None | None | None | **Semantic pruning + budgeting** |
 | PDF/URL/DOCX loading | Separate install | Built-in | Separate | **Built-in (optional deps)** |
+| LangChain compatible | N/A (is LangChain) | Adapter needed | No | **Native (`[langchain]` extra)** |
 
-**ContextBuddy does 80% of what LangChain does in 10% of the code.** Zero dependencies for the core. Optional extras for PDFs, web scraping, and accurate tokenizers.
+**ContextBuddy does 80% of what LangChain does in 10% of the code.** Zero dependencies for the core. Optional extras for PDFs, web scraping, accurate tokenizers, and native LangChain integration.
 
 ---
 
@@ -127,14 +144,121 @@ pip install "contextbuddy[openai]"      # OpenAI embeddings
 pip install "contextbuddy[ollama]"      # Free local semantic embeddings (requires Ollama)
 pip install "contextbuddy[sbert]"       # Free local semantic embeddings (sentence-transformers)
 pip install "contextbuddy[loaders]"     # All document loaders
-pip install "contextbuddy[all]"         # Everything
+pip install "contextbuddy[langchain]"   # LangChain integration (langchain-core)
+pip install "contextbuddy[mcp]"         # MCP server for Cursor / Claude Desktop
+pip install "contextbuddy[all]"         # Everything (including MCP + LangChain)
 ```
+
+---
+
+## MCP Server (Cursor / Claude Desktop)
+
+ContextBuddy ships an MCP server that gives AI assistants direct access to codebase search and context compression — no manual copy-paste needed.
+
+```bash
+pip install "contextbuddy[mcp]"
+```
+
+### Setup in Cursor
+
+1. Copy `.cursor/mcp.json.example` to `.cursor/mcp.json`
+2. Replace `/path/to/your/repo` with the absolute path to your project
+3. Restart Cursor — the server starts automatically
+
+```json
+{
+  "mcpServers": {
+    "contextbuddy": {
+      "command": "python",
+      "args": ["-m", "contextbuddy.mcp.server"],
+      "env": {
+        "CONTEXTBUDDY_ALLOWED_ROOTS": "/absolute/path/to/your/repo"
+      }
+    }
+  }
+}
+```
+
+> **Note:** `.cursor/mcp.json` is gitignored (it contains your local path). Commit `.cursor/mcp.json.example` instead.
+
+### Slash commands (in Cursor chat)
+
+| Command | What it does |
+|---|---|
+| `/cb <question>` | Quick codebase search + compression |
+| `/cb_deep <question>` | Semantic + graph search (best quality, requires indexes) |
+| `/cb_index` | Build vector + graph indexes for the repo |
+
+The server exposes 12 tools. The LLM picks them automatically based on your question — no explicit invocation needed.
+
+---
+
+## LangChain Integration
+
+ContextBuddy plugs directly into LangChain as a **native compression layer**. No glue code, no adapters -- just install the extra and use the two provided classes.
+
+```bash
+pip install "contextbuddy[langchain]"
+```
+
+> Requires `langchain-core>=0.1.0`. If it is missing, importing `ContextBuddyCompressor` or `ContextBuddyRetriever` will raise a helpful `ImportError` telling you exactly what to install.
+
+### `ContextBuddyCompressor`
+
+A drop-in `base_compressor` for LangChain's `ContextualCompressionRetriever`. It scores retrieved documents against the query, prunes irrelevant ones, preserves entities, and enforces a token budget -- all before the LLM sees a single token.
+
+### `ContextBuddyRetriever`
+
+Wraps any `MemoryStore` (or any object with a `.search(query, top_k)` method). Runs semantic search, compresses the results, and returns standard LangChain `Document` objects. Use it anywhere LangChain expects a `BaseRetriever`.
+
+### Example: both classes in action
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain_openai import ChatOpenAI
+from contextbuddy import (
+    ContextBuddyCompressor,
+    ContextBuddyRetriever,
+    MemoryStore,
+    load,
+)
+
+# --- Option A: Compress results from an existing LangChain retriever ---
+compressor = ContextBuddyCompressor(max_context_tokens=3000, min_relevance=0.15)
+
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=your_existing_retriever,  # any LangChain BaseRetriever
+)
+docs = compression_retriever.invoke("What are the payment terms?")
+# `docs` contains only the chunks that survived pruning + budgeting
+
+# --- Option B: Full retrieval + compression from a ContextBuddy store ---
+store = MemoryStore()
+store.add(load("./contracts/"))
+
+retriever = ContextBuddyRetriever(store=store, max_context_tokens=2000, top_k=20)
+docs = retriever.invoke("What is the late penalty clause?")
+# Returns Document objects -- plug straight into any LangChain chain
+
+# Use with any LangChain chain
+llm = ChatOpenAI(model="gpt-4o-mini")
+for doc in docs:
+    print(doc.page_content[:120], "...")
+```
+
+| Class | Purpose | Key params |
+|---|---|---|
+| `ContextBuddyCompressor` | Prune docs from any retriever | `max_context_tokens`, `min_relevance`, `conservative_mode` |
+| `ContextBuddyRetriever` | Search a `MemoryStore` + compress | `store`, `max_context_tokens`, `min_relevance`, `top_k` |
+
+Both classes are exported from the top-level package: `from contextbuddy import ContextBuddyCompressor, ContextBuddyRetriever`.
 
 ---
 
 ## Embedding Levels (what to use)
 
-ContextBuddy is **compression-first**. Embeddings are optional — you only upgrade when you need more semantic accuracy.
+ContextBuddy is **compression-first**. Embeddings are optional -- you only upgrade when you need more semantic accuracy.
 
 | Level | What you get | Cost | Dependencies | When to use |
 |---|---|---:|---|---|
@@ -181,7 +305,7 @@ engine = ContextEngine(
 
 ### Level 2 (paid semantic): OpenAI / Gemini
 
-- Use when you want the highest semantic accuracy and you’re okay with external API calls.
+- Use when you want the highest semantic accuracy and you're okay with external API calls.
 - Install: `pip install "contextbuddy[openai]"` (and similarly for Gemini when you enable it).
 
 ```python
@@ -204,7 +328,7 @@ engine = ContextEngine(
 
 ## 90-second quickstart (the only path you need)
 
-Compress a huge, noisy context into a budgeted prompt before the LLM call — in three lines.
+Compress a huge, noisy context into a budgeted prompt before the LLM call -- in three lines.
 
 ```python
 from contextbuddy import ContextEngine, ContextEngineConfig
@@ -226,16 +350,16 @@ final_prompt, report = engine.build_prompt(
 )
 
 print(report.reduction_pct, "% smaller,  $", report.estimated_savings, "saved per call")
-# Pass `final_prompt` to any LLM (OpenAI, Anthropic, Gemini, local — ContextBuddy doesn't care).
+# Pass `final_prompt` to any LLM (OpenAI, Anthropic, Gemini, local -- ContextBuddy doesn't care).
 ```
 
-When you're ready to call an LLM, use `engine.run(...)` (sync) or `engine.arun(...)` (async) and pass any `llm_call` callable. See [4 Ways to Use It](#4-ways-to-use-it-pick-your-level) for loaders, full RAG, and pipeline patterns.
+When you're ready to call an LLM, use `engine.run(...)` (sync) or `engine.arun(...)` (async) and pass any `llm_call` callable. See [5 Ways to Use It](#5-ways-to-use-it-pick-your-level) for loaders, full RAG, LangChain, and pipeline patterns.
 
 ---
 
 ## Benchmarks (quality gate)
 
-ContextBuddy includes a small benchmark harness so “more compression” doesn’t silently break correctness.
+ContextBuddy includes a small benchmark harness so "more compression" doesn't silently break correctness.
 
 ```bash
 python -m pip install -e .
@@ -255,10 +379,10 @@ Start at `docs/index.md`.
 ## What ContextBuddy guarantees
 
 - **Entity survival.** Any regex-matched entity (IDs, emails, URLs, dates, money, tickets, phones, UUIDs, version strings) always survives compression.
-- **Never larger.** Output is always shorter than input — or unchanged if input already fits the budget.
+- **Never larger.** Output is always shorter than input -- or unchanged if input already fits the budget.
 - **Never empty.** If input has content, output is non-empty. Empty output is treated as a bug, not a valid result.
 - **Deterministic core.** Same input + same config = same output. No randomness in the core pipeline.
-- **Zero core dependencies.** Works on a fresh Python 3.9+ install. `pip install contextbuddy` → done.
+- **Zero core dependencies.** Works on a fresh Python 3.9+ install. `pip install contextbuddy` -> done.
 - **Budget respected.** Final prompt always fits `max_context_tokens`. No mid-sentence cuts.
 
 ## What ContextBuddy does not do
@@ -271,7 +395,7 @@ Start at `docs/index.md`.
 
 ---
 
-## 4 Ways to Use It (pick your level)
+## 5 Ways to Use It (pick your level)
 
 ### Path 1: Compress raw text (3 lines)
 
@@ -320,44 +444,63 @@ pipeline = Pipeline.from_directory("./docs/", dev_mode=True)
 result = pipeline.query("Summarize the contract", llm_call=my_llm)
 ```
 
+### Path 5: LangChain pipeline
+
+Drop ContextBuddy into any existing LangChain retriever as a `ContextualCompressionRetriever`. Your retriever stays the same -- ContextBuddy just compresses what it returns.
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from contextbuddy import ContextBuddyCompressor
+
+compressor = ContextBuddyCompressor(max_context_tokens=3000)
+retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=your_existing_retriever,
+)
+docs = retriever.invoke("What is the refund policy?")
+# Only high-relevance, budget-fitting chunks survive. Entities always kept.
+```
+
+No rewrites required. Install `contextbuddy[langchain]`, add 4 lines, and your pipeline is 60% cheaper.
+
 ---
 
 ## Architecture
 
 ```
 Your Files (PDFs, URLs, DOCX, TXT, CSV, directories)
-    │
-    ▼
-┌─────────────┐
-│  Loaders    │  load("file.pdf") / load("https://...") / load("./dir/")
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│  Store      │  In-memory vector index (auto-dedup, metadata, persistence)
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│  Retriever  │  Semantic search → top-k chunks
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│  Compressor │  Prune → entity keep-list → token budget → compose
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│  Router     │  Score query complexity → pick cheap or expensive model
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│  Cache      │  Embedding cache + response cache (skip redundant work)
-└─────┬───────┘
-      │
-      ▼
+    |
+    v
++--------------+
+|  Loaders     |  load("file.pdf") / load("https://...") / load("./dir/")
++------+-------+
+       |
+       v
++--------------+
+|  Store       |  In-memory vector index (auto-dedup, metadata, persistence)
++------+-------+
+       |
+       v
++--------------+
+|  Retriever   |  Semantic search -> top-k chunks
++------+-------+
+       |
+       v
++--------------+
+|  Compressor  |  Prune -> entity keep-list -> token budget -> compose
++------+-------+
+       |
+       v
++--------------+
+|  Router      |  Score query complexity -> pick cheap or expensive model
++------+-------+
+       |
+       v
++--------------+
+|  Cache       |  Embedding cache + response cache (skip redundant work)
++------+-------+
+       |
+       v
   Your LLM (OpenAI / Anthropic / Google / Local)
 ```
 
@@ -378,7 +521,7 @@ Your raw text (PDF/web/code/plain text) is chunked into **coherent units** using
 - **Contracts**: groups clause/section headers with their bodies (keeps related content together)
 - **Python code**: keeps imports + functions/classes intact (no mid-function splits)
 
-The goal is not “more chunks” — it’s **better chunk boundaries**, so relevance scoring and budgeting keep the right information with fewer tokens.
+The goal is not "more chunks" -- it's **better chunk boundaries**, so relevance scoring and budgeting keep the right information with fewer tokens.
 
 ### Step 2: Relevance Scoring (HybridScorer -- the secret sauce)
 
@@ -636,6 +779,32 @@ report.entities                 # ["INV-92831", "2026-04-01", ...]
 
 ---
 
+## Public API Reference
+
+| Export | Module | Description |
+|---|---|---|
+| `ContextEngine` | `contextbuddy.engine` | Core compression engine |
+| `ContextEngineConfig` | `contextbuddy.engine` | Configuration dataclass |
+| `ContextReport` | `contextbuddy.engine` | Compression telemetry / ROI report |
+| `HybridScorer` | `contextbuddy.hybrid_scorer` | BM25 + stemming + synonyms + n-grams scorer |
+| `SemanticScorer` | `contextbuddy.scoring` | Embedding-based cosine scorer |
+| `MemoryStore` | `contextbuddy.store.memory` | In-memory vector store |
+| `PersistentStore` | `contextbuddy.store.persistent` | Disk-backed vector store |
+| `Retriever` | `contextbuddy.retriever` | Search + compress pipeline |
+| `Pipeline` | `contextbuddy.pipeline` | Full end-to-end pipeline |
+| `Router` | `contextbuddy.router` | Complexity-based model router |
+| `EmbeddingCache` | `contextbuddy.cache` | Persistent embedding cache |
+| `ResponseCache` | `contextbuddy.cache` | TTL response cache |
+| `ContextBuddyCompressor` | `contextbuddy.langchain` | LangChain `BaseDocumentCompressor` |
+| `ContextBuddyRetriever` | `contextbuddy.langchain` | LangChain `BaseRetriever` with compression |
+| `wrap_openai` | `contextbuddy.wrappers` | OpenAI client drop-in wrapper |
+| `load` | `contextbuddy.loaders` | Universal file/URL/directory loader |
+| `get_pricing` | `contextbuddy.pricing` | Model pricing lookup |
+| `Embedder` | `contextbuddy.types` | Protocol for custom embedders |
+| `Tokenizer` | `contextbuddy.types` | Protocol for custom tokenizers |
+
+---
+
 ## Real-World Use Cases
 
 ### Customer Support Bot
@@ -647,7 +816,7 @@ from contextbuddy import Pipeline
 
 pipeline = Pipeline.from_directory("./customer_data/acct_12345/", dev_mode=True, max_context_tokens=3000)
 answer = pipeline.query("What was my last invoice amount?", llm_call=my_llm)
-# [ContextBuddy] 15000 → 2800 tokens (81.3% reduction). Est. savings: $0.0305
+# [ContextBuddy] 15000 -> 2800 tokens (81.3% reduction). Est. savings: $0.0305
 # Entity keep-list preserved: INV-92831, $4,500.00, 2026-04-01, acct_12345
 ```
 
@@ -695,7 +864,24 @@ Being honest:
 
 - **Full agent orchestration** (multi-step reasoning, tool chains, long-term memory) -- use LangGraph or CrewAI instead. ContextBuddy compresses context, it doesn't orchestrate agents.
 - **Billion-scale vector search** -- if you have 100M+ documents and need sub-millisecond search, use Pinecone or Weaviate directly. ContextBuddy's in-memory store is designed for <100k chunks.
-- **Already deep in LangChain and it's working** -- don't rewrite. But you *can* drop ContextBuddy inside your existing LangChain pipeline as a compression step:
+- **Already deep in LangChain and it's working** -- don't rewrite. Instead, add ContextBuddy as a compression layer with zero disruption:
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from contextbuddy import ContextBuddyCompressor
+
+# 4 lines. Your existing retriever stays untouched.
+compressor = ContextBuddyCompressor(max_context_tokens=4000)
+compressed_retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=your_existing_langchain_retriever,
+)
+docs = compressed_retriever.invoke(user_question)
+# Irrelevant chunks pruned, entities preserved, token budget enforced.
+# Pass `docs` to your chain exactly as before -- just cheaper.
+```
+
+Or, if you prefer the lower-level approach:
 
 ```python
 from contextbuddy import ContextEngine
@@ -720,6 +906,9 @@ It can if you prune too aggressively. Start with `min_relevance=0.10` and inspec
 **Does it send my data anywhere?**
 Not by default. The built-in embedder and vector store run 100% locally with zero dependencies. Only if you explicitly plug in `OpenAIEmbedder` does it call an external API.
 
+**Does it work with async frameworks (FastAPI, etc.)?**
+`engine.arun()` is async-compatible -- the LLM call is awaited. Note: the compression step (chunking + scoring) runs synchronously inside the coroutine. For high-concurrency workloads, wrap compression with `asyncio.to_thread(engine.build_prompt, ...)`. True async compression is planned for v0.4.0.
+
 **Does it work with streaming?**
 Yes. Pass `stream=True` to `engine.run()`. ContextBuddy emits the ROI report, then yields LLM chunks.
 
@@ -730,7 +919,32 @@ The default `HeuristicTokenizer` uses a 4-chars-per-token rule. For exact counts
 Yes. The core pipeline is deterministic, dependency-free, and fast (<10ms for typical payloads). Set `dev_mode=False` to disable telemetry.
 
 **How is this different from LangChain?**
-ContextBuddy is **compression-first**. LangChain retrieves context but sends it all to the LLM. ContextBuddy retrieves, compresses, preserves entities, and shows you exactly how much you're saving. Zero core dependencies vs 100+.
+ContextBuddy is **compression-first**. LangChain retrieves context but sends it all to the LLM. ContextBuddy retrieves, compresses, preserves entities, and shows you exactly how much you're saving. Zero core dependencies vs 100+. And with the `[langchain]` extra, the two work together -- ContextBuddy plugs in as the compression layer LangChain never had.
+
+**Does it work with LangChain?**
+Yes, natively. Install `contextbuddy[langchain]` and use `ContextBuddyCompressor` as a drop-in `base_compressor` for `ContextualCompressionRetriever`, or use `ContextBuddyRetriever` to wrap a `MemoryStore`. See the [LangChain Integration](#langchain-integration) section.
+
+**How does compression work without an LLM?**
+It doesn't need one. The pipeline has four stages: (1) document-aware chunking, (2) relevance scoring via BM25 + stemming + synonym expansion + character n-gram fuzzy matching, (3) entity force-keep — any chunk containing an ID, date, dollar amount, UUID, etc. is kept regardless of score, (4) greedy budget packing. No neural network, no API calls, no randomness. Sub-5ms on a typical payload.
+
+**How do you guarantee compression quality without an LLM?**
+Two ways. First, the entity keep-list is a hard guarantee — regex-matched entities (IDs, dates, money, tickets) always survive, no matter what the scorer says. Second, every release must pass a benchmark gate: 100% entity survival rate and a minimum answer coverage threshold. If a code change breaks either, it doesn't ship. You can run the gate yourself: `python -m contextbuddy bench --gate`.
+
+**Do I need to set up OpenAI/Gemini/Meta embeddings manually?**
+No. Each provider is a one-line install:
+```bash
+pip install "contextbuddy[openai]"    # OpenAI
+pip install "contextbuddy[gemini]"    # Google Gemini
+pip install "contextbuddy[ollama]"    # Meta Llama / any local model via Ollama (no API key)
+pip install "contextbuddy[sbert]"     # sentence-transformers (fully local, no API key)
+```
+Then pass the embedder as a single argument to `ContextEngine`. Your API key goes in the environment (`OPENAI_API_KEY`, `GOOGLE_API_KEY`). Nothing else to configure.
+
+**What about Meta / Llama embeddings specifically?**
+Meta doesn't offer a hosted embedding API, so the practical path is Ollama — install [Ollama](https://ollama.com), pull a model (`ollama pull nomic-embed-text`), and use `OllamaEmbedder`. Runs fully local, no API key, no data leaving your machine, zero cost.
+
+**Why use this over other tools?**
+They solve retrieval — fetching the right documents. None of them compress what they retrieve. They send all 20 chunks to the LLM regardless of relevance. ContextBuddy cuts that down to the 4 that actually matter, preserves every entity, enforces a token budget, and shows you the dollar savings on every call. It's not a replacement for those frameworks — it's the compression layer they're all missing. And it plugs into all of them with 3 lines.
 
 ---
 

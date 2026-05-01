@@ -97,10 +97,11 @@ class Chunker:
                 buf = [ch]
                 buf_len = len(ch)
             if buf:
-                # If we ended with a tiny fragment and nothing to merge it with,
-                # drop it as noise (backwards-compatible behavior).
-                if buf_len >= self.min_chars:
-                    merged_min.append("\n\n".join(buf).strip())
+                flushed = "\n\n".join(buf).strip()
+                if buf_len >= self.min_chars or not merged_min:
+                    merged_min.append(flushed)
+                else:
+                    merged_min[-1] = merged_min[-1] + "\n\n" + flushed
             out = merged_min
 
         if self.merge_under_chars > 0:

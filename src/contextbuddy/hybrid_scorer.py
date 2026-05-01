@@ -316,7 +316,12 @@ class HybridScorer:
             # --- Character n-gram fuzzy matching ---
             ngram_total = 0.0
             ngram_count = 0
+            raw_set_i = set(chunk_tokens_raw[i])
             for qt in query_raw:
+                if qt in raw_set_i:
+                    ngram_total += 1.0
+                    ngram_count += 1
+                    continue
                 best_sim = 0.0
                 for dt in chunk_tokens_raw[i]:
                     sim = _ngram_similarity(qt, dt, n=self.ngram_n)

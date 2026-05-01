@@ -114,20 +114,20 @@ class BudgetEnforcer:
             return [], []
 
         # If we still exceed budget due to token estimator variance, trim tail by score (non-keep first).
-        def current_total() -> int:
-            return sum(self.count_tokens(chunks[i]) for i in selected)
+        running_total = sum(self.count_tokens(chunks[i]) for i in selected)
 
-        while selected and current_total() > max_context_tokens:
+        while selected and running_total > max_context_tokens:
             drop_idx = min(
                 selected,
                 key=lambda i: (1 if keep_mask[i] else 0, float(scores[i])),
             )
+            running_total -= self.count_tokens(chunks[drop_idx])
             selected.remove(drop_idx)
 
         # If budget is extremely tight, compress the last chunk.
-        if selected and current_total() > max_context_tokens:
+        if selected and running_total > max_context_tokens:
             last = selected[-1]
-            room = max(0, max_context_tokens - (current_total() - self.count_tokens(chunks[last])))
+            room = max(0, max_context_tokens - (running_total - self.count_tokens(chunks[last])))
             # Convert token room into chars conservatively.
             max_chars = max(200, int(room * 4))
             chunks2 = list(chunks)

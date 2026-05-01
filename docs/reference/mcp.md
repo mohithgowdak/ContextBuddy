@@ -5,23 +5,6 @@ ContextBuddy ships an optional MCP server so MCP-capable clients can:
 - compress context into a budgeted prompt
 - optionally search a local codebase/knowledge base to gather initial context, then compress it
 
-## Test in Cursor (this repo)
-
-1. From the repo root: `pip install -e ".[mcp]"` (so `python -m contextbuddy.mcp.server` works).
-2. This project includes `.cursor/mcp.json` — it starts ContextBuddy over **stdio** and sets `CONTEXTBUDDY_ALLOWED_ROOTS` to **`${workspaceFolder}`** (your opened folder).
-3. **Fully restart Cursor** so it reloads MCP (required after config changes).
-4. Open **Settings → Features → Model Context Protocol** and confirm **contextbuddy** is listed and enabled.
-5. In Agent chat, check **Available tools** for names like `compress`, `about`, `vector_graph_search_and_compress`, or ask explicitly: “Call the `about` MCP tool.”
-6. If the server fails to start, open **Output → MCP Logs** and fix any `python` / import errors.
-
-### If you see `MCP error -32000: Connection closed`
-
-That usually means the **stdio server process exited** before the MCP handshake (often a **different `python`** than the one where you ran `pip install -e`).
-
-This repo’s `.cursor/mcp.json` runs **`scripts/run_mcp_stdio.py`**, which adds `src/` to `sys.path` so `contextbuddy` imports even when the editable install is missing for that interpreter. You still need **`mcp`** installed on that same Python: `python -m pip install "mcp[cli]"` or `pip install -e ".[mcp]"`.
-
-Then **restart Cursor** and check MCP Logs again.
-
 ## Install
 
 ```bash
@@ -310,28 +293,4 @@ Suggested knobs:
 - `vector_top_k=15–30`
 - `graph_hop_limit=1` (raise to 2 if you need deeper dependencies)
 - `max_context_tokens=1200–2500`
-
-## MVP policy (limits, timeouts, privacy)
-
-- **`about`**: returns version, registered tool names, and current numeric limits (no repository content).
-- **`validate_config`**: optional checks (allowed-root hint, embedder import for `embedder_id`, limits summary). Does not read project files beyond resolving `root` when provided.
-- **Input caps** (override via env):
-
-| Env var | Default | Purpose |
-|---|---:|---|
-| `CONTEXTBUDDY_MCP_MAX_PROMPT_CHARS` | `100000` | Max `user_prompt` length |
-| `CONTEXTBUDDY_MCP_MAX_CONTEXT_CHARS` | `5000000` | Max total chars in `context` (string or list) |
-| `CONTEXTBUDDY_MCP_MAX_QUERY_CHARS` | `20000` | Max length for search/query parameters |
-
-- **Timeouts** (wall-clock, per tool call):
-
-| Env var | Default | Purpose |
-|---|---:|---|
-| `CONTEXTBUDDY_MCP_TOOL_TIMEOUT_SEC` | `120` | Search/compress/hybrid tools |
-| `CONTEXTBUDDY_MCP_INDEX_TIMEOUT_SEC` | `600` | `graph_*_build/update`, `vector_*_build/update` |
-
-- **How timeouts are enforced**: work runs in a **worker thread** so the server can stop waiting after N seconds. That is ideal for CPU-bound compression and file scanning. If you use an embedder or client that is **not thread-safe** or holds a **thread-local** connection, run those tools with a **longer** `CONTEXTBUDDY_MCP_*_TIMEOUT_SEC` or avoid mixing concurrent MCP calls against the same process. If you hit a rare failure, prefer **localhash** / **Ollama** (HTTP per request) over heavy in-process singletons when indexing under timeout.
-
-- **Errors + `report`**: tools that return a compression `report` include a **zeroed `report` stub** and `ok: false` when validation fails or a timeout occurs (so clients always get a `report` key).
-- **No raw-text logs**: the server does not `print()` user prompts or context; configure your MCP client if you need to avoid logging tool payloads.
 

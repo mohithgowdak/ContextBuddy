@@ -85,7 +85,8 @@ def default_dataset() -> List[BenchmarkCase]:
 
 
 def load_dataset(path: str) -> List[BenchmarkCase]:
-    raw = json.loads(open(path, "r", encoding="utf-8").read())
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.loads(f.read())
     out: List[BenchmarkCase] = []
     for item in raw:
         out.append(

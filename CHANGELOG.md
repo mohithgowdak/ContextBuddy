@@ -1,27 +1,93 @@
 # Changelog
 
-## v0.3.0 (2026-04-13)
+## v0.3.0 (2026-04-22)
 
-HybridScorer: a new default relevance engine that makes compression dramatically smarter -- still zero dependencies.
+### New: MCP Server (`contextbuddy.mcp`)
 
-### New: HybridScorer (`contextbuddy.hybrid_scorer`)
-- **BM25 scoring** -- the algorithm behind Elasticsearch. Handles term-frequency saturation, document-length normalization, and IDF weighting. Replaces the old hash-based cosine similarity as the default scorer.
-- **Lightweight stemmer** (`contextbuddy.stemmer`) -- pure-Python suffix-stripping stemmer. "payments" matches "payment", "running" matches "run". No NLTK required.
-- **Built-in synonym thesaurus** (`contextbuddy.synonyms`) -- ~200 word groups covering business, legal, tech, medical, and general vocabulary. "car" matches "automobile", "buy" matches "purchase", "error" matches "bug". All offline.
-- **Character n-gram fuzzy matching** -- catches typos and spelling variants (e.g. "optimise" vs "optimize") via Jaccard similarity over character trigrams.
-- Weighted combination: BM25 (70%) + synonym bonus (15%) + n-gram bonus (15%), all configurable.
+ContextBuddy now ships as an MCP server, making it directly usable inside Cursor,
+Claude Desktop, and any MCP-capable client — no code changes required.
 
-### Changed
-- `ContextEngine` now uses `HybridScorer` by default instead of `SemanticScorer` + `LocalHashEmbedder`.
-- If you pass a custom `embedder=`, the engine falls back to the old `SemanticScorer` for backward compatibility.
-- New `scorer=` parameter on `ContextEngine` to inject any custom scorer.
-- Version bumped to 0.3.0.
+```bash
+pip install "contextbuddy[mcp]"
+contextbuddy-mcp   # starts the stdio server
+```
 
-### Backward Compatibility
-- `SemanticScorer` and `LocalHashEmbedder` are still available and fully supported.
-- All existing tests pass without changes.
+**12 tools exposed:**
+- `compress` — compress any raw context into a token-budgeted prompt
+- `search_kb` / `search_and_compress` — keyword search + compress (no index needed)
+- `graph_build` / `graph_update` / `graph_search` / `graph_search_and_compress` — Python symbol + import graph index
+- `vector_build` / `vector_update` / `vector_search` / `vector_search_and_compress` — semantic vector index
+- `vector_graph_search_and_compress` — best-quality: vector seeds → graph expansion → compress
+
+**3 slash-command prompts:** `/cb`, `/cb_deep`, `/cb_index`
+
+**Setup:** Copy `.cursor/mcp.json.example` to `.cursor/mcp.json`, set `CONTEXTBUDDY_ALLOWED_ROOTS`, restart Cursor.
 
 ---
+
+### New: Pluggable Embedders
+
+All embedders conform to a common `Embedder` protocol and are injectable at engine creation.
+New `scorer=` parameter on `ContextEngine` to inject any custom scorer.
+
+---
+
+### New: HybridScorer (`contextbuddy.hybrid_scorer`)
+
+- **BM25 scoring** — term-frequency saturation, doc-length normalization, IDF weighting
+- **Lightweight stemmer** — "payments" matches "payment", "running" matches "run"
+- **Built-in synonym thesaurus** — ~200 word groups covering business, legal, tech vocabulary
+- **Character n-gram fuzzy matching** — catches typos and spelling variants
+- Intent-aware bonuses: numeric density for metrics queries, method heading detection for "how does X work"
+- Weighted combination: BM25 (70%) + synonym (15%) + n-gram (15%), all configurable
+
+---
+
+### New: Streaming ROI (`build_prompt_stream`)
+
+`engine.build_prompt_stream()` yields `CompressionEvent` objects:
+`start` → `chunked` → `scoring` → `scored` (with report) → `done` (with prompt + report)
+
+---
+
+### Bug Fixes
+
+- **engine.py** — fixed sync/streaming entity mismatch; extracted `_compress()` eliminating
+  150 lines of duplication; fixed conservative mode config mutation; fixed streaming stage
+  ordering (`scoring` fires before compression, `scored` after with real report)
+- **budget.py** — fixed O(n²) token counting → O(n) with incremental `running_total`
+- **chunking.py** — fixed trailing fragments silently dropped; now merged into previous chunk
+- **hybrid_scorer.py** — n-gram exact matches skip inner loop via set lookup
+- **cache.py** — `CachedEmbedder` now validates embedder response length; removed `type: ignore`
+- **index/vector.py** — `flush()` in `build()` and `update()` validates vector count to prevent
+  silent chunk loss from short embedder responses
+- **router.py** — `"summarize"` moved to complex keywords; added imperative task verb detection
+  ("summarize the PDF", "debug this" now score as complex)
+- **benchmarks.py** — fixed unclosed file handle in `load_dataset()`
+
+---
+
+### Changed
+
+- `[all]` extra now includes `mcp[cli]`
+- `.cursor/mcp.json` is gitignored; `.cursor/mcp.json.example` committed as setup template
+
+---
+
+### Async note
+
+`engine.arun()` is async-compatible for the LLM call. Compression runs synchronously.
+For high-concurrency workloads: `asyncio.to_thread(engine.build_prompt, ...)`.
+True async compression planned for v0.4.0.
+
+---
+
+### Backward Compatibility
+
+All existing APIs unchanged. `SemanticScorer` and `LocalHashEmbedder` remain fully supported.
+
+---
+
 
 ## v0.2.0 (2026-04-13)
 

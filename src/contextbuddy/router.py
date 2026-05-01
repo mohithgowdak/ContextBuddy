@@ -14,12 +14,12 @@ _COMPLEX_KEYWORDS = {
     "legal", "regulatory", "compliance", "architecture", "design",
     "strategy", "recommend", "prioritize", "assess", "debate",
     "multi-step", "reasoning", "chain-of-thought",
+    "summarize", "summarise", "summary",
 }
 
 _SIMPLE_KEYWORDS = {
     "what is", "define", "list", "name", "when", "where", "how many",
     "yes or no", "true or false", "extract", "find", "lookup",
-    "summarize",
 }
 
 _WORD_RE = re.compile(r"\b[a-z]+\b")
@@ -68,6 +68,15 @@ def score_complexity(query: str) -> float:
     # Conditional/comparative language.
     if any(w in q for w in ("if", "versus", "vs", "compared to", "difference between")):
         score += 0.1
+
+    # Imperative task verbs on short queries signal non-trivial work.
+    # "summarize the PDF" is 3 words but requires deep comprehension.
+    _TASK_VERBS = {
+        "summarize", "summarise", "explain", "rewrite", "refactor",
+        "debug", "review", "optimize", "translate", "convert",
+    }
+    if n_words <= 12 and any(q.startswith(v) or v in q for v in _TASK_VERBS):
+        score += 0.15
 
     return max(0.0, min(1.0, score))
 
