@@ -15,9 +15,10 @@ Run (stdio):
     contextbuddy-mcp
 """
 
+import os
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 def _require_mcp():
@@ -39,6 +40,12 @@ def create_server():
     from .security import validate_root
     from ..index.graph import RepoGraphIndex, build_default_index_dir
     from ..index.vector import RepoVectorIndex
+    from ..retriever import rrf_fuse
+
+    try:  # optional
+        from ..index.codegraph import RepoCodeGraphIndex
+    except Exception:  # pragma: no cover
+        RepoCodeGraphIndex = None  # type: ignore
 
     mcp = FastMCP("ContextBuddy", json_response=True)
 
@@ -512,6 +519,382 @@ def create_server():
             "graph_matches": [asdict(m) for m in g_matches],
             "graph_match_count": len(g_matches),
         }
+
+    def _read_small_text_file(p: Path, *, max_bytes: int = 256_000) -> Optional[str]:
+        try:
+            if not p.exists() or not p.is_file():
+                return None
+            if p.stat().st_size <= 0:
+                return None
+            data = p.read_bytes()
+            if len(data) > int(max_bytes):
+                data = data[: int(max_bytes)]
+            return data.decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+    def _git_head(rootp: Path) -> Optional[str]:
+        try:
+            if not (rootp / ".git").exists():
+                return None
+            import subprocess
+
+            res = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(rootp),
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            head = (res.stdout or "").strip()
+            return head or None
+        except Exception:
+            return None
+
+    def _ensure_repo_index_dir(rootp: Path) -> Path:
+        """
+        Store indexes inside the repo under `.contextbuddy/indexes` and ensure it is gitignored.
+        """
+        home = (rootp / ".contextbuddy" / "indexes").resolve()
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return build_default_index_dir()
+
+        try:
+            gi = (rootp / ".gitignore").resolve()
+            entry = ".contextbuddy/"
+            if gi.exists() and gi.is_file():
+                existing = gi.read_text(encoding="utf-8", errors="replace")
+                if entry not in existing:
+                    suffix = "" if existing.endswith("\n") or existing == "" else "\n"
+                    gi.write_text(existing + suffix + entry + "\n", encoding="utf-8")
+        except Exception:
+            pass
+        return home
+
+    def _overview_manifest_context(rootp: Path, *, max_files: int = 20, max_depth: int = 2) -> List[str]:
+        """
+        Include high-signal "how to run / what is it" files (README, manifests, schemas).
+
+        Works for monorepos by scanning a shallow directory depth.
+        """
+        want_names = {
+            "readme.md",
+            "readme.txt",
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.py",
+            "setup.cfg",
+            "package.json",
+            "cargo.toml",
+            "go.mod",
+            "dockerfile",
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            ".env.example",
+        }
+        out: List[str] = []
+
+        def add_file(p: Path) -> None:
+            nonlocal out
+            if len(out) >= int(max_files):
+                return
+            txt = _read_small_text_file(p)
+            if not txt:
+                return
+            out.append(f"Source: {p}\n{txt}".strip())
+
+        # Always try root-level first
+        for nm in [
+            "README.md",
+            "pyproject.toml",
+            "requirements.txt",
+            "package.json",
+            "prisma/schema.prisma",
+        ]:
+            add_file((rootp / nm).resolve())
+
+        # Shallow walk for common subproject manifests
+        root_depth = len(rootp.parts)
+        for dirpath, dirnames, filenames in os.walk(rootp):
+            if len(out) >= int(max_files):
+                break
+            depth = len(Path(dirpath).parts) - root_depth
+            if depth > int(max_depth):
+                dirnames[:] = []
+                continue
+            # prune common noise dirs quickly
+            dirnames[:] = [d for d in dirnames if d not in {".git", ".venv", "node_modules", ".next", "dist", "build", ".contextbuddy"}]
+
+            for fn in filenames:
+                if len(out) >= int(max_files):
+                    break
+                low = fn.lower()
+                if low == "readme.md" or low in want_names:
+                    add_file((Path(dirpath) / fn).resolve())
+                if low == "schema.prisma" and Path(dirpath).name.lower() == "prisma":
+                    add_file((Path(dirpath) / fn).resolve())
+
+        # Deduplicate
+        seen = set()
+        deduped: List[str] = []
+        for ch in out:
+            k = ch.strip()
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            deduped.append(k)
+        return deduped
+
+    def _rel_from_abs(rootp: Path, p: str) -> Optional[str]:
+        try:
+            return str(Path(p).resolve().relative_to(rootp.resolve())).replace("\\", "/")
+        except Exception:
+            return None
+
+    @mcp.tool()
+    def project_overview_and_compress(
+        user_prompt: str,
+        overview_query: Optional[str] = None,
+        root: str = ".",
+        index_dir: Optional[str] = None,
+        embedder_id: str = "localhash",
+        embedder_config: Optional[Dict[str, Any]] = None,
+        vector_top_k: int = 25,
+        vector_min_score: float = 0.0,
+        graph_hop_limit: int = 1,
+        include_imports: bool = True,
+        include_importers: bool = False,
+        max_preview_chars: int = 900,
+        max_preview_lines: int = 120,
+        include_manifest_files: bool = True,
+        manifest_max_files: int = 20,
+        max_context_tokens: int = 2000,
+        min_relevance: float = 0.15,
+        conservative_mode: bool = False,
+        include_entities_section: bool = True,
+        include_structured: bool = True,
+        include_key_flows: bool = True,
+        key_flow_limit: int = 25,
+        auto_build_graph: bool = True,
+        graph_build_max_files: int = 50_000,
+        graph_build_max_bytes_per_file: int = 512_000,
+        auto_build_codegraph: bool = False,
+        codegraph_build_max_files: int = 50_000,
+        codegraph_build_max_bytes_per_file: int = 512_000,
+        auto_update_indexes: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        UX-friendly repo overview: retrieve + compress with minimal knobs.
+
+        Retrieval strategy:
+        - If vector and/or graph indexes exist, use them.
+        - Fuse vector+graph file rankings via RRF for better coverage.
+        - Always (optionally) include README/manifests/schemas for "how to run" answers.
+        - Optionally include Python key flows if the optional codegraph index exists.
+        """
+        rootp = validate_root(root)
+        idx_dir = Path(index_dir).resolve() if index_dir else _ensure_repo_index_dir(rootp)
+
+        q = (
+            str(overview_query)
+            if overview_query
+            else "features overview capabilities what does this project do quickstart install run usage "
+            "cli commands api routes architecture components entrypoints"
+        )
+
+        # indexes
+        v = RepoVectorIndex(root=rootp, index_dir=idx_dir, embedder_id=str(embedder_id), embedder_config=dict(embedder_config or {}))
+        g = RepoGraphIndex(root=rootp, index_dir=idx_dir)
+
+        if bool(auto_build_graph) and not g.exists():
+            g.build(max_files=int(graph_build_max_files), max_bytes_per_file=int(graph_build_max_bytes_per_file))
+
+        v_ok = v.exists()
+        g_ok = g.exists()
+
+        # staleness check (git head mismatch) + optional auto-update
+        current_head = _git_head(rootp)
+        graph_stale = False
+        vector_stale = False
+        try:
+            if g_ok:
+                g.load()
+                gh = (g._manifest or {}).get("git_head")  # type: ignore[attr-defined]
+                graph_stale = bool(current_head and gh and gh != current_head)
+        except Exception:
+            pass
+        try:
+            if v_ok:
+                v.load()
+                vh = (v._data or {}).get("git_head")  # type: ignore[attr-defined]
+                vector_stale = bool(current_head and vh and vh != current_head)
+        except Exception:
+            pass
+
+        if bool(auto_update_indexes):
+            if g_ok and graph_stale:
+                try:
+                    g.update(max_files=int(graph_build_max_files), max_bytes_per_file=int(graph_build_max_bytes_per_file))
+                    g_ok = g.exists()
+                    graph_stale = False
+                except Exception:
+                    pass
+            if v_ok and vector_stale:
+                try:
+                    v.update(max_files=int(graph_build_max_files), max_bytes_per_file=int(graph_build_max_bytes_per_file))
+                    v_ok = v.exists()
+                    vector_stale = False
+                except Exception:
+                    pass
+
+        v_matches: List[Any] = []
+        g_matches: List[Any] = []
+        mode = "fallback"
+
+        if v_ok:
+            v_matches = v.search(
+                query=str(q),
+                top_k=int(vector_top_k),
+                min_score=float(vector_min_score),
+                max_preview_chars=int(max_preview_chars),
+            )
+        if g_ok:
+            g_matches = g.search(
+                query=str(q),
+                top_k=int(vector_top_k),
+                hop_limit=int(graph_hop_limit),
+                include_imports=bool(include_imports),
+                include_importers=bool(include_importers),
+                max_preview_lines=int(max_preview_lines),
+            )
+
+        # Decide mode label
+        if v_ok and g_ok:
+            mode = "vector_graph"
+        elif v_ok:
+            mode = "vector"
+        elif g_ok:
+            mode = "graph"
+
+        # Rank fusion for file coverage
+        v_rel = [(_rel_from_abs(rootp, m.path) or "") for m in v_matches]
+        g_rel = [(_rel_from_abs(rootp, m.path) or "") for m in g_matches]
+        fused = rrf_fuse([ [p for p in v_rel if p], [p for p in g_rel if p] ])
+        top_files = [p for p, _ in fused[: max(10, int(vector_top_k))] if p] or [p for p in g_rel if p][: max(10, int(vector_top_k))]
+        top_set = set(top_files)
+
+        v_context = v.matches_to_context([m for m in v_matches if (_rel_from_abs(rootp, m.path) or "") in top_set]) if v_ok else []
+        # graph: expand_from_files using fused top files if available
+        g_context: List[str] = []
+        g_expanded: List[Any] = []
+        if g_ok:
+            seed_abs = [str((rootp / rel).resolve()) for rel in top_files[: max(5, int(graph_hop_limit) * 10)]]
+            g_expanded = g.expand_from_files(
+                seed_abs,
+                hop_limit=int(graph_hop_limit),
+                include_imports=bool(include_imports),
+                include_importers=bool(include_importers),
+                top_k=max(10, int(vector_top_k) * 2),
+                max_preview_lines=int(max_preview_lines),
+            )
+            g_context = g.matches_to_context(g_expanded)
+        else:
+            g_expanded = g_matches
+
+        context_chunks: List[str] = []
+        for ch in [*v_context, *g_context]:
+            key = ch.strip()
+            if not key:
+                continue
+            context_chunks.append(ch)
+
+        if bool(include_manifest_files):
+            context_chunks.extend(_overview_manifest_context(rootp, max_files=int(manifest_max_files)))
+
+        # dedupe
+        seen = set()
+        deduped: List[str] = []
+        for ch in context_chunks:
+            k = (ch or "").strip()
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            deduped.append(k)
+
+        # structured extraction fields
+        structured: Dict[str, Any] = {}
+        if bool(include_structured):
+            rels = [r for r in top_files if r]
+            # entrypoints: simple heuristics
+            ep: List[str] = []
+            for r in rels:
+                low = Path(r).name.lower()
+                if low in {"__main__.py", "main.py", "cli.py", "app.py", "server.py", "manage.py"}:
+                    ep.append(r)
+            structured["entrypoints"] = sorted(set(ep))[:20]
+
+            # core modules: top-level dirs from fused files
+            mods: Dict[str, int] = {}
+            for r in rels:
+                parts = r.split("/")
+                if not parts:
+                    continue
+                top = parts[0]
+                mods[top] = mods.get(top, 0) + 1
+            structured["core_modules"] = sorted(mods.items(), key=lambda kv: kv[1], reverse=True)[:20]
+
+            structured["index_status"] = {
+                "mode": mode,
+                "index_dir": str(idx_dir),
+                "vector_index_exists": bool(v_ok),
+                "graph_index_exists": bool(g_ok),
+                "git_head": current_head,
+                "graph_index_stale": bool(graph_stale),
+                "vector_index_stale": bool(vector_stale),
+            }
+
+            # key flows: Python call edges (optional index)
+            if bool(include_key_flows) and RepoCodeGraphIndex is not None:
+                try:
+                    cg = RepoCodeGraphIndex(root=rootp, index_dir=idx_dir)
+                    if bool(auto_build_codegraph) and not cg.exists():
+                        cg.build(max_files=int(codegraph_build_max_files), max_bytes_per_file=int(codegraph_build_max_bytes_per_file))
+                    if cg.exists():
+                        edges = cg.top_calls_for_paths(rels, limit=int(key_flow_limit))
+                        structured["key_flows"] = [
+                            f"{e.caller} -> {e.callee} ({e.path}:{e.line})" for e in edges if e.caller and e.callee and e.path
+                        ]
+                    else:
+                        structured["key_flows"] = []
+                except Exception:
+                    structured["key_flows"] = []
+
+        engine = ContextEngine(
+            ContextEngineConfig(
+                max_context_tokens=int(max_context_tokens),
+                min_relevance=float(min_relevance),
+                conservative_mode=bool(conservative_mode),
+                dev_mode=False,
+                include_entities_section=bool(include_entities_section),
+            )
+        )
+        prompt, report = engine.build_prompt(user_prompt=str(user_prompt), context=deduped)
+
+        resp: Dict[str, Any] = {
+            "prompt": prompt,
+            "report": asdict(report),
+            "mode": mode,
+            "vector_matches": [asdict(m) for m in v_matches],
+            "vector_match_count": len(v_matches),
+            "graph_matches": [asdict(m) for m in g_expanded],
+            "graph_match_count": len(g_expanded),
+        }
+        if bool(include_structured):
+            resp.update(structured)
+        return resp
 
     # ── MCP Prompts (slash-command shortcuts) ──
 

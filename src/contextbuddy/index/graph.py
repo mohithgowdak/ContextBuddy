@@ -4,10 +4,16 @@ import ast
 import json
 import os
 import re
+import subprocess
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+try:  # optional
+    from .codegraph import RepoCodeGraphIndex  # type: ignore
+except Exception:  # pragma: no cover
+    RepoCodeGraphIndex = None  # type: ignore
 
 
 DEFAULT_GRAPH_EXCLUDE_DIRS: Set[str] = {
@@ -23,6 +29,33 @@ DEFAULT_GRAPH_EXCLUDE_DIRS: Set[str] = {
 }
 
 DEFAULT_GRAPH_EXTS: Set[str] = {".py", ".md", ".txt", ".toml", ".yaml", ".yml", ".json", ".ts", ".tsx", ".js", ".jsx"}
+
+
+def _callee_base_name(expr: str) -> str:
+    """
+    Best-effort extraction of a callee base symbol from a call expression.
+
+    Examples:
+    - "foo" -> "foo"
+    - "pkg.mod.foo" -> "foo"
+    - "obj.foo" -> "foo"
+    - "foo(bar)" -> "foo"
+    """
+    s = (expr or "").strip()
+    if not s:
+        return ""
+    # drop args: "foo(..."
+    if "(" in s:
+        s = s.split("(", 1)[0].strip()
+    # drop indexing / generics-ish: "foo["
+    if "[" in s:
+        s = s.split("[", 1)[0].strip()
+    # last dotted part
+    if "." in s:
+        s = s.rsplit(".", 1)[-1].strip()
+    # identifier-ish cleanup
+    s = re.sub(r"[^A-Za-z0-9_]+", "", s)
+    return s
 
 
 def build_default_index_dir(app_name: str = "ContextBuddy") -> Path:
@@ -46,6 +79,24 @@ def _sha1(s: str) -> str:
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _git_head(root: Path) -> Optional[str]:
+    try:
+        if not (root / ".git").exists():
+            return None
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        head = (res.stdout or "").strip()
+        return head or None
+    except Exception:
+        return None
 
 
 def _iter_files(
@@ -215,6 +266,83 @@ class RepoGraphIndex:
                 sym = GraphSymbol(**obj)
                 self._symbols_by_path.setdefault(sym.path, []).append(sym)
 
+    def _enrich_edges_with_codegraph(
+        self,
+        edges: Dict[str, Set[str]],
+        symbols_by_path: Dict[str, List[GraphSymbol]],
+        *,
+        max_callee_targets: int = 3,
+        max_edges_per_file: int = 400,
+    ) -> int:
+        """
+        Optional: add file->file edges derived from Python call edges.
+
+        This is intentionally best-effort. We map a call expression's base name (e.g. `foo`
+        from `pkg.foo(...)`) to Python symbol definitions extracted by the stdlib AST index.
+
+        If codegraph optional deps are not installed or its index is missing, this is a no-op.
+        """
+        if RepoCodeGraphIndex is None:
+            return 0
+        try:
+            cg = RepoCodeGraphIndex(root=self.root, index_dir=self.index_dir, exclude_dirs=self.exclude_dirs, exts=[".py"])
+            if not cg.exists():
+                return 0
+        except Exception:
+            return 0
+
+        # Build name -> {paths} map from AST symbols
+        name_to_paths: Dict[str, Set[str]] = {}
+        for rel, syms in symbols_by_path.items():
+            for s in syms:
+                nm = (s.name or "").strip()
+                if not nm:
+                    continue
+                name_to_paths.setdefault(nm, set()).add(rel)
+
+        edges_path = (cg._index_path / "codegraph_edges.jsonl").resolve()  # type: ignore[attr-defined]
+        if not edges_path.exists():
+            return 0
+
+        added = 0
+        added_per_file: Dict[str, int] = {}
+
+        try:
+            with edges_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    rel = str(obj.get("path") or "")
+                    if not rel:
+                        continue
+                    callee_expr = str(obj.get("callee") or "")
+                    base = _callee_base_name(callee_expr)
+                    if not base:
+                        continue
+                    targets = sorted(name_to_paths.get(base) or [])
+                    if not targets:
+                        continue
+                    if max_callee_targets > 0 and len(targets) > int(max_callee_targets):
+                        continue  # ambiguous
+                    # enforce per-file edge cap
+                    if added_per_file.get(rel, 0) >= int(max_edges_per_file):
+                        continue
+                    outs = edges.setdefault(rel, set())
+                    before = len(outs)
+                    for t in targets:
+                        if t and t != rel:
+                            outs.add(t)
+                    if len(outs) > before:
+                        inc = len(outs) - before
+                        added += inc
+                        added_per_file[rel] = added_per_file.get(rel, 0) + inc
+        except Exception:
+            return 0
+
+        return int(added)
+
     def build(self, *, max_files: int = 50_000, max_bytes_per_file: int = 512_000) -> Dict[str, Any]:
         if not self.root.exists() or not self.root.is_dir():
             raise FileNotFoundError(f"Repo root not found or not a directory: {self.root}")
@@ -252,6 +380,9 @@ class RepoGraphIndex:
                 edges[rel] = outs
                 edge_count += len(outs)
 
+        code_edges_added = self._enrich_edges_with_codegraph(edges, symbols_by_path)
+        edge_count += int(code_edges_added)
+
         self._edges = {k: sorted(v) for k, v in edges.items()}
         self._symbols_by_path = symbols_by_path
         self._manifest = {
@@ -259,10 +390,11 @@ class RepoGraphIndex:
             "root": str(self.root),
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
+            "git_head": _git_head(self.root),
             "exclude_dirs": list(self.exclude_dirs),
             "exts": list(self.exts),
             "files": fingerprints,
-            "stats": {"files_seen": file_count, "symbols": sym_count, "edges": edge_count},
+            "stats": {"files_seen": file_count, "symbols": sym_count, "edges": edge_count, "code_edges_added": int(code_edges_added)},
         }
         self._save()
         return {"index_path": str(self._index_path), **self._manifest.get("stats", {}), "updated_at": self._manifest["updated_at"]}
@@ -317,12 +449,19 @@ class RepoGraphIndex:
                 self._edges[rel] = sorted(outs)
 
         # persist updated manifest + stores
+        # (re)enrich with optional codegraph edges, so CALL relationships stay in sync.
+        edges_sets: Dict[str, Set[str]] = {k: set(v) for k, v in self._edges.items()}
+        code_edges_added = self._enrich_edges_with_codegraph(edges_sets, dict(self._symbols_by_path))
+        self._edges = {k: sorted(v) for k, v in edges_sets.items()}
+
         self._manifest["updated_at"] = _now_iso()
+        self._manifest["git_head"] = _git_head(self.root)
         self._manifest["files"] = new_files
         self._manifest["stats"] = {
             "files_seen": len(new_files),
             "symbols": sum(len(v) for v in self._symbols_by_path.values()),
             "edges": sum(len(v) for v in self._edges.values()),
+            "code_edges_added": int(code_edges_added),
         }
         self._save()
 

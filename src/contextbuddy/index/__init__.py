@@ -15,6 +15,12 @@ from .graph import (
 )
 from .vector import RepoVectorIndex, VectorMatch, make_embedder
 
+try:  # optional
+    from .codegraph import RepoCodeGraphIndex, CodeGraphEdge
+except Exception:  # pragma: no cover
+    RepoCodeGraphIndex = None  # type: ignore
+    CodeGraphEdge = None  # type: ignore
+
 __all__ = [
     "RepoGraphIndex",
     "GraphMatch",
@@ -22,5 +28,7 @@ __all__ = [
     "RepoVectorIndex",
     "VectorMatch",
     "make_embedder",
+    "RepoCodeGraphIndex",
+    "CodeGraphEdge",
 ]
 

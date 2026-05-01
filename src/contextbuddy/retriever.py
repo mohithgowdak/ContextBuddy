@@ -8,6 +8,34 @@ from .store.memory import MemoryStore, SearchResult
 from .types import Embedder, ModelPricing, Tokenizer
 
 
+def rrf_fuse(
+    rankings: Sequence[Sequence[str]],
+    *,
+    k: int = 60,
+    weights: Optional[Sequence[float]] = None,
+) -> List[tuple[str, float]]:
+    """
+    Reciprocal Rank Fusion (RRF) over multiple ranked lists.
+
+    `rankings` is a list of ranked lists (best first). Items are string keys (e.g., file paths).
+    Returns a single ranking of (item, fused_score) sorted descending.
+    """
+    if k <= 0:
+        k = 60
+    ws = list(weights) if weights is not None else [1.0] * len(rankings)
+    if len(ws) != len(rankings):
+        ws = [1.0] * len(rankings)
+
+    scores: dict[str, float] = {}
+    for w, lst in zip(ws, rankings):
+        w = float(w)
+        for i, key in enumerate(lst):
+            if not key:
+                continue
+            scores[key] = scores.get(key, 0.0) + (w / (k + i + 1))
+    return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+
+
 class Retriever:
     """
     Multi-document RAG in one object.

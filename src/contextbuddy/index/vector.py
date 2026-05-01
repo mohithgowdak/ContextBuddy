@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import subprocess
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -12,6 +13,24 @@ from ..chunking import SmartChunker
 from ..embedder import LocalHashEmbedder
 from ..types import Embedder
 from .graph import DEFAULT_GRAPH_EXCLUDE_DIRS, DEFAULT_GRAPH_EXTS, _iter_files, _file_fingerprint, _safe_read_text, _sha1, _now_iso
+
+
+def _git_head(root: Path) -> Optional[str]:
+    try:
+        if not (root / ".git").exists():
+            return None
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        head = (res.stdout or "").strip()
+        return head or None
+    except Exception:
+        return None
 
 
 @dataclass(frozen=True)
@@ -223,6 +242,7 @@ class RepoVectorIndex:
             "root": str(self.root),
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
+            "git_head": _git_head(self.root),
             "exclude_dirs": list(self.exclude_dirs),
             "exts": list(self.exts),
             "chunker": {
@@ -320,6 +340,7 @@ class RepoVectorIndex:
 
         combined = kept + [asdict(r) for r in new_records]
         self._data["updated_at"] = _now_iso()
+        self._data["git_head"] = _git_head(self.root)
         self._data["files"] = new_files
         self._data["records"] = combined
         self._data["stats"] = {"files_seen": int(len(new_files)), "chunks": int(len(combined))}

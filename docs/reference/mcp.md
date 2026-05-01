@@ -82,6 +82,20 @@ Recommended first-time workflow (best quality):
 2. Call `graph_build(root="...")`
 3. Use `vector_graph_search_and_compress(...)` for daily queries
 
+## Optional: richer Python call-chain extraction (tree-sitter)
+
+ContextBuddy can optionally build a higher-accuracy Python “codegraph” (call edges) using tree-sitter.
+
+Install:
+
+```bash
+pip install "contextbuddy[codegraph]"
+```
+
+This enables:
+- better file-to-file expansion using call relationships (when a codegraph index exists)
+- optional `key_flows` output in `project_overview_and_compress` (when enabled)
+
 ## Most common use case: IDE / repo knowledge
 
 This MCP server is designed for the “assistant in your IDE” workflow:
@@ -272,6 +286,25 @@ Returns:
 - `prompt`, `report`
 - `vector_matches` + count
 - `graph_matches` + count
+
+### `project_overview_and_compress`
+
+Single-call repo overview tool for agent UX:
+
+- Uses whichever indexes exist (vector/graph; builds graph automatically by default)
+- Adds shallow repo “manifest” context (README / package.json / pyproject.toml / prisma schema) so overviews include run steps
+- Compresses everything into your token budget
+Inputs (common):
+- `user_prompt` (str)
+- `root` (str)
+- `auto_build_graph` (bool, default true)
+- `include_manifest_files` (bool, default true)
+- `include_structured` (bool, default true)
+
+Returns:
+- `prompt`, `report`
+- `mode` (one of: `vector_graph`, `vector`, `graph`, `fallback`)
+- `entrypoints`, `core_modules`, `index_status` (when `include_structured=true`)
 
 ## Recommended defaults (repo search)
 
