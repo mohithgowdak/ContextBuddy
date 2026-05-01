@@ -27,6 +27,18 @@ def _require_tree_sitter() -> Tuple[Any, Any]:
     return Parser, get_language
 
 
+def _set_parser_language(parser: Any, language: Any) -> None:
+    """
+    tree_sitter API compatibility:
+    - older: Parser.set_language(Language)
+    - newer: parser.language = Language
+    """
+    if hasattr(parser, "set_language"):
+        parser.set_language(language)
+        return
+    setattr(parser, "language", language)
+
+
 @dataclass(frozen=True)
 class CodeGraphEdge:
     kind: str  # "calls"
@@ -88,7 +100,7 @@ class RepoCodeGraphIndex:
 
         Parser, get_language = _require_tree_sitter()
         parser = Parser()
-        parser.set_language(get_language("python"))
+        _set_parser_language(parser, get_language("python"))
 
         fingerprints: Dict[str, Dict[str, Any]] = {}
         edge_count = 0
@@ -168,7 +180,7 @@ class RepoCodeGraphIndex:
 
         Parser, get_language = _require_tree_sitter()
         parser = Parser()
-        parser.set_language(get_language("python"))
+        _set_parser_language(parser, get_language("python"))
 
         added_edges = 0
         new_edge_objs: List[Dict[str, Any]] = []
