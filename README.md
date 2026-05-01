@@ -39,6 +39,30 @@
 
 >
 
+## Install
+
+### PyPI
+
+```bash
+pip install contextbuddy
+```
+
+### TestPyPI (for pre-release testing)
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple contextbuddy==0.4.0
+```
+
+### Optional extras
+
+```bash
+# MCP server tools
+pip install "contextbuddy[mcp]==0.4.0"
+
+# Python codegraph (tree-sitter call edges)
+pip install "contextbuddy[codegraph]==0.4.0"
+```
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │                   ContextBuddy                       │
