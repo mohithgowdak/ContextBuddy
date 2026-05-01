@@ -46,7 +46,13 @@ def _make_python_parser() -> Any:
             # Fall back to language API
             pass
     parser = Parser()
-    lang = get_language("python")
+    try:
+        lang = get_language("python")
+    except Exception as e:
+        raise ImportError(
+            "tree_sitter_languages is installed but does not expose a compatible Python grammar API. "
+            "Try upgrading/downgrading tree-sitter-languages, or use a version that supports get_parser('python')."
+        ) from e
     _set_parser_language(parser, lang)
     return parser
 
