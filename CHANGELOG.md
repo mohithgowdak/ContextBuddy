@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.1 (2026-05-01)
+
+- Docs: add install snippet to README.
+
 ## v0.4.0 (2026-05-01)
 
 ### New: GitNexus-style extraction upgrades
