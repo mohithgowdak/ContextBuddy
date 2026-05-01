@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -160,11 +161,41 @@ class CachedEmbedder:
 
         if miss_texts:
             new_vecs = self._embedder.embed(miss_texts)
+            if len(new_vecs) != len(miss_texts):
+                raise RuntimeError(
+                    f"Embedder returned {len(new_vecs)} vectors for {len(miss_texts)} texts"
+                )
             self._cache.put_many(miss_texts, new_vecs)
             for i, vec in zip(miss_indices, new_vecs):
                 results[i] = vec
 
-        return results  # type: ignore[return-value]
+        return [r for r in results if r is not None]
+
+    async def aembed(self, texts: Sequence[str]) -> List[List[float]]:
+        results: List[Optional[List[float]]] = self._cache.get_many(texts)
+        miss_indices: List[int] = []
+        miss_texts: List[str] = []
+
+        for i, r in enumerate(results):
+            if r is None:
+                miss_indices.append(i)
+                miss_texts.append(texts[i])
+
+        if miss_texts:
+            aembed_fn = getattr(self._embedder, "aembed", None)
+            if aembed_fn is not None:
+                new_vecs = await aembed_fn(miss_texts)
+            else:
+                new_vecs = await asyncio.to_thread(self._embedder.embed, miss_texts)
+            if len(new_vecs) != len(miss_texts):
+                raise RuntimeError(
+                    f"Embedder returned {len(new_vecs)} vectors for {len(miss_texts)} texts"
+                )
+            self._cache.put_many(miss_texts, new_vecs)
+            for i, vec in zip(miss_indices, new_vecs):
+                results[i] = vec
+
+        return [r for r in results if r is not None]
 
     @property
     def stats(self) -> CacheStats:

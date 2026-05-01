@@ -61,6 +61,13 @@ def test_extracts_id_like_values() -> None:
     assert "sess-abc-def" in entities
 
 
+def test_id_regex_does_not_match_words_like_identify() -> None:
+    text = "Micro-expression analysis enables the system to identify subtle patterns. Identification matters."
+    entities = EntityExtractor().extract(text)
+    assert "entify" not in entities
+    assert "entification" not in entities
+
+
 def test_max_entities_respected() -> None:
     text = " ".join(f"user{i}@example.com" for i in range(100))
     entities = EntityExtractor(max_entities=5).extract(text)

@@ -1,4 +1,4 @@
-from .engine import ContextEngine, ContextEngineConfig, ContextReport
+from .engine import ContextEngine, ContextEngineConfig, ContextReport, CompressionEvent
 from .pricing import get_pricing, PRESETS
 from .wrappers import wrap_openai, WrappedClient
 from .retriever import Retriever
@@ -8,14 +8,37 @@ from .store.persistent import PersistentStore
 from .loaders import load
 from .router import Router, RouteRule, score_complexity
 from .cache import EmbeddingCache, ResponseCache, CachedEmbedder
+from .hybrid_scorer import HybridScorer
+from .langchain import ContextBuddyCompressor, ContextBuddyRetriever
+from .scoring import SemanticScorer
+from .stemmer import stem, tokenize_and_stem
+from .embedder import LocalHashEmbedder, OpenAIEmbedder, OllamaEmbedder, SentenceTransformersEmbedder, GeminiEmbedder
+from .types import Embedder, AsyncEmbedder, Tokenizer
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # Core
     "ContextEngine",
     "ContextEngineConfig",
     "ContextReport",
+    "CompressionEvent",
+    # Contracts (Protocols — duck typed)
+    "Embedder",
+    "AsyncEmbedder",
+    "Tokenizer",
+    # Scoring
+    "HybridScorer",
+    "SemanticScorer",
+    # Stemmer
+    "stem",
+    "tokenize_and_stem",
+    # Embedders
+    "LocalHashEmbedder",
+    "OpenAIEmbedder",
+    "OllamaEmbedder",
+    "SentenceTransformersEmbedder",
+    "GeminiEmbedder",
     # Loaders
     "load",
     # Store
@@ -34,6 +57,9 @@ __all__ = [
     "EmbeddingCache",
     "ResponseCache",
     "CachedEmbedder",
+    # LangChain integration
+    "ContextBuddyCompressor",
+    "ContextBuddyRetriever",
     # Wrappers
     "wrap_openai",
     "WrappedClient",

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
+from ..chunking import SmartChunker
+
 
 def load_docx(path: str | Path) -> List[str]:
     """
@@ -23,19 +25,16 @@ def load_docx(path: str | Path) -> List[str]:
         raise FileNotFoundError(f"DOCX not found: {p}")
 
     doc = Document(str(p))
-    chunks: List[str] = []
-    buf: List[str] = []
-
+    lines: List[str] = []
     for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            if buf:
-                chunks.append("\n".join(buf))
-                buf = []
+        t = para.text.strip()
+        if t:
+            lines.append(t)
         else:
-            buf.append(text)
+            lines.append("")
 
-    if buf:
-        chunks.append("\n".join(buf))
+    text = "\n".join(lines).strip()
+    if not text:
+        return []
 
-    return [c for c in chunks if len(c) >= 20]
+    return SmartChunker().chunk(text, doc_type="auto")

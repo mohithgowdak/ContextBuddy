@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 from dataclasses import dataclass, field
@@ -109,6 +110,85 @@ class MemoryStore:
             if s >= min_score:
                 scored.append((s, i))
 
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        results: List[SearchResult] = []
+        for score, idx in scored[:top_k]:
+            results.append(SearchResult(
+                chunk=self._chunks[idx],
+                score=score,
+                index=idx,
+                metadata=self._metadata[idx],
+            ))
+        return results
+
+    async def aadd(
+        self,
+        chunks: str | Sequence[str],
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        deduplicate: bool = True,
+    ) -> "MemoryStore":
+        """Async counterpart of `add`.
+
+        Embedding calls (especially against remote APIs) are I/O bound,
+        so the work is offloaded to a worker thread to avoid blocking
+        the event loop. Uses the embedder's native `aembed` when it
+        exists; otherwise falls back to `asyncio.to_thread(self.add, ...)`.
+        """
+        aembed_fn = getattr(self._embedder, "aembed", None)
+        if aembed_fn is None:
+            return await asyncio.to_thread(
+                self.add, chunks, metadata=metadata, deduplicate=deduplicate
+            )
+
+        if isinstance(chunks, str):
+            chunks = [chunks]
+
+        new_chunks: List[str] = []
+        new_meta: List[Dict[str, Any]] = []
+        for c in chunks:
+            c = str(c).strip()
+            if not c:
+                continue
+            if deduplicate:
+                h = _chunk_hash(c)
+                if h in self._seen_hashes:
+                    continue
+                self._seen_hashes.add(h)
+            new_chunks.append(c)
+            new_meta.append(metadata or {})
+
+        if new_chunks:
+            vecs = await aembed_fn(new_chunks)
+            self._chunks.extend(new_chunks)
+            self._vectors.extend(vecs)
+            self._metadata.extend(new_meta)
+
+        return self
+
+    async def asearch(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        min_score: float = 0.0,
+    ) -> List[SearchResult]:
+        """Async counterpart of `search`."""
+        if not self._chunks:
+            return []
+
+        aembed_fn = getattr(self._embedder, "aembed", None)
+        if aembed_fn is not None:
+            q_vec = (await aembed_fn([query]))[0]
+        else:
+            q_vec = (await asyncio.to_thread(self._embedder.embed, [query]))[0]
+
+        scored: List[Tuple[float, int]] = []
+        for i, v in enumerate(self._vectors):
+            s = _cosine(q_vec, v)
+            if s >= min_score:
+                scored.append((s, i))
         scored.sort(key=lambda x: x[0], reverse=True)
 
         results: List[SearchResult] = []

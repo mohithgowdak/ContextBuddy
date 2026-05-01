@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Awaitable, Callable, List, Optional, Sequence, Union
 
 from .engine import ContextEngine, ContextEngineConfig, ContextReport
@@ -56,6 +57,16 @@ class Retriever:
         self.last_search_results = results
         return [r.chunk for r in results]
 
+    async def aretrieve(self, query: str) -> List[str]:
+        """Async counterpart of `retrieve`."""
+        asearch = getattr(self.store, "asearch", None)
+        if asearch is not None:
+            results = await asearch(query, top_k=self.top_k)
+        else:
+            results = await asyncio.to_thread(self.store.search, query, top_k=self.top_k)
+        self.last_search_results = results
+        return [r.chunk for r in results]
+
     def build_prompt(self, query: str) -> tuple[str, ContextReport]:
         """Search, compress, and return the final prompt + report."""
         chunks = self.retrieve(query)
@@ -85,8 +96,14 @@ class Retriever:
         *,
         llm_call: Callable[[str], Awaitable[Any]],
     ) -> Any:
-        """Async version of query()."""
-        final_prompt, report = self.build_prompt(question)
+        """Async version of query(). Retrieval + compression run off the event loop."""
+        chunks = await self.aretrieve(question)
+        final_prompt, report = await asyncio.to_thread(
+            self.engine.build_prompt,
+            user_prompt=question,
+            context=chunks,
+        )
         self.last_report = report
+        self.engine.last_report = report
         self.engine._emit_report(report)
         return await llm_call(final_prompt)

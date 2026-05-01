@@ -25,12 +25,16 @@ _PATTERNS: Dict[str, Pattern[str]] = {
     ),
     "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     "version": re.compile(r"\bv?\d+\.\d+(?:\.\d+)+\b"),
+    # Domain-ish identifiers (common in real tickets/contracts)
+    "policy": re.compile(r"\b[A-Z]{2,}-\d{4,}-[A-Z0-9]+\b"),
+    # git SHAs (40-hex) show up in incident reports and PR discussions
+    "git_sha": re.compile(r"\b[0-9a-f]{40}\b", re.IGNORECASE),
 }
 
 _id_re = re.compile(
     r"\b(?:id|uid|user_id|account_id|order_id|invoice_id|customer_id|"
-    r"session_id|transaction_id|ref|reference|sku|arn)"
-    r"\s*[:=#]?\s*([A-Za-z0-9_-]{4,})\b",
+    r"session_id|transaction_id|ref|reference|sku|arn)\b"
+    r"(?:\s*[:=#]\s*|\s+)([A-Za-z0-9_-]{4,})\b",
     re.IGNORECASE,
 )
 

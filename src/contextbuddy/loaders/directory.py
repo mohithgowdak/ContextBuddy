@@ -7,6 +7,23 @@ _DEFAULT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".csv", ".json", ".jsonl",
     ".log", ".xml", ".yaml", ".yml", ".rst", ".html", ".htm",
     ".pdf", ".docx",
+    # Codebases (python-only for now)
+    ".py",
+}
+
+_DEFAULT_IGNORE_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "site-packages",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
 }
 
 
@@ -17,6 +34,7 @@ def load_directory(
     max_depth: int = 5,
     max_file_bytes: int = 10 * 1024 * 1024,
     prefix_source: bool = True,
+    ignore_dirs: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """
     Recursively load all supported files from a directory.
@@ -28,6 +46,7 @@ def load_directory(
         raise NotADirectoryError(f"Not a directory: {root}")
 
     allowed = {e.lower() if e.startswith(".") else f".{e.lower()}" for e in (extensions or _DEFAULT_EXTENSIONS)}
+    ignored = {d for d in (ignore_dirs or _DEFAULT_IGNORE_DIRS)}
     all_chunks: List[str] = []
 
     for p in sorted(root.rglob("*")):
@@ -39,6 +58,11 @@ def load_directory(
         rel = p.relative_to(root)
         depth = len(rel.parts) - 1
         if depth > max_depth:
+            continue
+
+        # Skip junk directories (venvs, caches, build artifacts, etc.)
+        # Use parts membership so nested venvs are excluded too.
+        if any(part in ignored for part in rel.parts[:-1]):
             continue
 
         try:

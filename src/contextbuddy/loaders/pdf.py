@@ -6,7 +6,7 @@ from typing import List
 
 def load_pdf(path: str | Path) -> List[str]:
     """
-    Extract text from a PDF file, one chunk per page.
+    Extract text from a PDF file and return coherent text chunks.
 
     Requires: pip install "contextbuddy[pdf]"
     """
@@ -23,10 +23,19 @@ def load_pdf(path: str | Path) -> List[str]:
         raise FileNotFoundError(f"PDF not found: {p}")
 
     doc = pymupdf.open(str(p))
-    chunks: List[str] = []
+    pages: List[str] = []
     for page in doc:
         text = page.get_text("text").strip()
         if text:
-            chunks.append(text)
+            pages.append(text)
     doc.close()
-    return chunks
+
+    # Avoid page-wise chunking (contracts often split clauses across pages).
+    # Normalize + re-chunk with SmartChunker so sections/clauses stay together.
+    from ..chunking import SmartChunker
+
+    full_text = "\n\n".join(pages).strip()
+    if not full_text:
+        return []
+
+    return SmartChunker().chunk(full_text, doc_type="pdf")

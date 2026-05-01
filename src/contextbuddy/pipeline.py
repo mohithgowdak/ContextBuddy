@@ -10,6 +10,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Union
 
@@ -107,6 +108,15 @@ class Pipeline:
             self.store.add(chunks, metadata=metadata or {"source": str(s)})
 
         return self
+
+    async def aadd(
+        self,
+        source: Union[str, Path, Sequence[Union[str, Path]]],
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "Pipeline":
+        """Async counterpart of `add`. Loading + embedding run off the event loop."""
+        return await asyncio.to_thread(self.add, source, metadata=metadata)
 
     def query(
         self,

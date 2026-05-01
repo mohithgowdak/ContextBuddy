@@ -4,46 +4,62 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contextbuddy"
-version = "0.2.0"
+version = "0.3.0"
 description = "From raw PDFs to compressed prompts in 3 lines. Cut your LLM bill by 60%."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "ContextBuddy contributors" }]
 keywords = ["llm", "prompt", "context", "compression", "routing", "tokens", "cost", "rag", "pdf", "vector-store"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
-  "License :: OSI Approved :: MIT License",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
 ]
 dependencies = []
 
 [project.scripts]
 contextbuddy = "contextbuddy.cli:main"
+contextbuddy-mcp = "contextbuddy.mcp.server:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "build>=1.2.0", "twine>=5.0.0"]
 tiktoken = ["tiktoken>=0.6.0"]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.30.0"]
+mcp = ["mcp[cli]"]
+ollama = ["httpx>=0.27.0"]
+sbert = ["sentence-transformers>=3.0.0"]
+gemini = ["google-genai>=0.3.0"]
 pdf = ["pymupdf>=1.24.0"]
 web = ["httpx>=0.27.0", "beautifulsoup4>=4.12.0"]
 docx = ["python-docx>=1.1.0"]
 loaders = ["pymupdf>=1.24.0", "httpx>=0.27.0", "beautifulsoup4>=4.12.0", "python-docx>=1.1.0"]
-all = ["tiktoken>=0.6.0", "openai>=1.0.0", "anthropic>=0.30.0", "pymupdf>=1.24.0", "httpx>=0.27.0", "beautifulsoup4>=4.12.0", "python-docx>=1.1.0"]
+langchain = ["langchain-core>=0.1.0"]
+all = ["tiktoken>=0.6.0", "openai>=1.0.0", "anthropic>=0.30.0", "google-genai>=0.3.0", "sentence-transformers>=3.0.0", "httpx>=0.27.0", "pymupdf>=1.24.0", "beautifulsoup4>=4.12.0", "python-docx>=1.1.0", "mcp[cli]"]
 
 [project.urls]
 Homepage = "https://github.com/mohithgowdak/ContextBuddy"
 Repository = "https://github.com/mohithgowdak/ContextBuddy"
 Issues = "https://github.com/mohithgowdak/ContextBuddy/issues"
+Changelog = "https://github.com/mohithgowdak/ContextBuddy/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/mohithgowdak/ContextBuddy#readme"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+contextbuddy = ["py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

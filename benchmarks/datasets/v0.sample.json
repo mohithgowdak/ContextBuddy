@@ -1,0 +1,10 @@
+[
+  {
+    "name": "support/invoice-id",
+    "document": "Ticket ACME-2041: chargebacks for user_id=usr_9z8y7x6w.\n\nInvoice INV-92831 issued 2026-04-01 for account_id=acct_12345. Amount: $4,500.00 USD.\n\nUnrelated planning notes. Unrelated planning notes. Unrelated planning notes.\n",
+    "question": "What is the invoice ID and date?",
+    "expected_substring": "INV-92831 issued 2026-04-01",
+    "required_entities": ["INV-92831", "2026-04-01", "acct_12345"]
+  }
+]
+
