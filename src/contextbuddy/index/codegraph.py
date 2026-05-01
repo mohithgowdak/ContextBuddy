@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from .graph import DEFAULT_GRAPH_EXCLUDE_DIRS, DEFAULT_GRAPH_EXTS, _file_fingerprint, _iter_files, _now_iso, _safe_read_text, _sha1
 
 
-def _require_tree_sitter() -> Tuple[Any, Any]:
+def _require_tree_sitter() -> Tuple[Any, Optional[Any], Optional[Any]]:
     """
     Optional dependency loader.
 
@@ -19,12 +19,36 @@ def _require_tree_sitter() -> Tuple[Any, Any]:
     try:
         from tree_sitter import Parser  # type: ignore
         from tree_sitter_languages import get_language  # type: ignore
+        try:
+            from tree_sitter_languages import get_parser  # type: ignore
+        except Exception:
+            get_parser = None  # type: ignore
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "Codegraph indexing requires optional dependencies. "
             "Install with: pip install \"contextbuddy[codegraph]\""
         ) from e
-    return Parser, get_language
+    return Parser, get_language, get_parser
+
+
+def _make_python_parser() -> Any:
+    """
+    Build a Python parser across tree_sitter_languages versions.
+
+    Some versions expose `get_parser("python")` (preferred).
+    Others expose `get_language("python")` + you attach it to Parser.
+    """
+    Parser, get_language, get_parser = _require_tree_sitter()
+    if get_parser is not None:
+        try:
+            return get_parser("python")
+        except Exception:
+            # Fall back to language API
+            pass
+    parser = Parser()
+    lang = get_language("python")
+    _set_parser_language(parser, lang)
+    return parser
 
 
 def _set_parser_language(parser: Any, language: Any) -> None:
@@ -98,9 +122,7 @@ class RepoCodeGraphIndex:
             raise FileNotFoundError(f"Repo root not found or not a directory: {self.root}")
         self._index_path.mkdir(parents=True, exist_ok=True)
 
-        Parser, get_language = _require_tree_sitter()
-        parser = Parser()
-        _set_parser_language(parser, get_language("python"))
+        parser = _make_python_parser()
 
         fingerprints: Dict[str, Dict[str, Any]] = {}
         edge_count = 0
@@ -178,9 +200,7 @@ class RepoCodeGraphIndex:
                 if obj.get("path") in keep_paths:
                     kept.append(obj)
 
-        Parser, get_language = _require_tree_sitter()
-        parser = Parser()
-        _set_parser_language(parser, get_language("python"))
+        parser = _make_python_parser()
 
         added_edges = 0
         new_edge_objs: List[Dict[str, Any]] = []
