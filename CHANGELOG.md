@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0 (2026-05-01)
+
+### New: GitNexus-style extraction upgrades
+
+- **Optional Python codegraph (`[codegraph]`)** — tree-sitter-based call-edge indexing (`RepoCodeGraphIndex`) for richer “what calls what” context.
+- **Graph enrichment** — `RepoGraphIndex` can add best-effort file edges based on call relationships when the codegraph index exists.
+- **Hybrid retrieval (RRF)** — added Reciprocal Rank Fusion to combine multiple ranked lists into a more reliable shortlist.
+- **New MCP tool: `project_overview_and_compress`** — single-call repo overview extraction for agents:
+  - fuses vector + graph coverage (when available)
+  - always includes README/manifests (monorepo-aware shallow scan) for “how to run”
+  - optional structured fields: `entrypoints`, `core_modules`, `index_status`, and `key_flows` (when codegraph is available)
+- **Index staleness awareness** — graph/vector index manifests record git HEAD; MCP overview can auto-update indexes when stale.
+- **CI** — GitHub Actions runs core tests across Python 3.9–3.12 plus an additional job for the optional codegraph extra; opted into Node 24 for JS-based Actions.
+
+---
+
 ## v0.3.0 (2026-04-22)
 
 ### New: MCP Server (`contextbuddy.mcp`)
