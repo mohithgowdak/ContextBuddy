@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.2 (2026-05-01)
+
+- Release for PyPI publication.
+
 ## v0.4.1 (2026-05-01)
 
 - Docs: add install snippet to README.
